@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Imagen Web</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">imagen web</p>
+      <h1>이미지 생성</h1>
+      <p class="desc">프롬프트와 참고 이미지를 넣으면 백그라운드에서 생성하고, 결과와 프롬프트 히스토리를 보관합니다.</p>
+    </section>
+
+    <section class="panel">
+      <form id="generateForm">
+        <label class="label" for="prompt">프롬프트</label>
+        <textarea id="prompt" name="prompt" rows="4" placeholder="생성할 이미지를 설명하세요" required></textarea>
+
+        <div class="row">
+          <label class="field">
+            <span class="label">이미지 모델</span>
+            <select name="imageModel" id="imageModel">
+              <option value="gpt-image-2.6-flare" selected>gpt-image-2.6 · flare</option>
+              <option value="gpt-image-2.6-sunburst">gpt-image-2.6 · sunburst</option>
+              <option value="gpt-image-2.5-flare">gpt-image-2.5 · flare</option>
+              <option value="gpt-image-2.5-sunburst">gpt-image-2.5 · sunburst</option>
+              <option value="qwen-image-2.1">Qwen-Image 2.1 (맥 로컬, 느림)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Codex 모델</span>
+            <select name="model" id="model">
+              <option value="gpt-6.1-sol" selected>sol (gpt-6.1-sol)</option>
+              <option value="gpt-6.1-terra">terra (gpt-6.1-terra)</option>
+              <option value="gpt-6-luna">luna (gpt-6-luna)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">크기</span>
+            <select name="size" id="size">
+              <option value="auto">auto</option>
+              <option value="512x512" data-qwen-only hidden disabled>512x512</option>
+              <option value="1024x1024">1024x1024</option>
+              <option value="1536x1024">1536x1024</option>
+              <option value="1024x1536">1024x1536</option>
+              <option value="2048x2048">2048x2048</option>
+              <option value="2048x1152">2048x1152</option>
+              <option value="3840x2160">3840x2160</option>
+              <option value="2160x3840">2160x3840</option>
+            </select>
+          </label>
+          <label class="field grow">
+            <span class="label">참고 이미지(선택)</span>
+            <input id="images" name="images" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple />
+          </label>
+        </div>
+
+        <div id="qwenOptions" class="row" hidden>
+          <label class="field">
+            <span class="label">네거티브 프롬프트(선택)</span>
+            <textarea name="negative" rows="2" disabled></textarea>
+          </label>
+          <label class="field">
+            <span class="label">시드(선택)</span>
+            <input class="pickerSearch" name="seed" type="number" min="0" max="9007199254740991" step="1" disabled />
+          </label>
+        </div>
+        <p id="qwenHint" class="msg" hidden>맥 로컬에서 한 장씩 생성합니다. 512×512 약 7분, 1024×1024 약 28분이며 참조·크기에 따라 1시간 이상 걸릴 수 있습니다. auto는 1024×1024, 생성 제한은 2시간입니다. 진행 상태는 5초마다 갱신됩니다.</p>
+        <button id="submitBtn" type="submit">생성 시작</button>
+        <p id="formMsg" class="msg" role="status"></p>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="sectionHead">
+        <h2>히스토리</h2>
+        <div class="historyControls">
+          <label class="intervalControl">
+            <span>자동 업데이트</span>
+            <select id="refreshInterval">
+              <option value="0">수동</option>
+              <option value="5000">5초</option>
+              <option value="10000">10초</option>
+              <option value="30000">30초</option>
+              <option value="60000">1분</option>
+            </select>
+          </label>
+          <button id="refreshBtn" class="iconBtn" type="button" aria-label="지금 새로고침" title="지금 새로고침">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg>
+          </button>
+        </div>
+      </div>
+      <div id="history" class="history"></div>
+    </section>
+  </main>
+
+  <div id="modal" class="modal" hidden>
+    <div class="shade" data-close="true"></div>
+    <article class="dialog">
+      <button class="close" type="button" data-close="true">×</button>
+      <div id="modalBody"></div>
+    </article>
+  </div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

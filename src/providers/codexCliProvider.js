@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+import { normalizeImageSize } from '../codex/imageGenerationOptions.js';
 const SESSION_ID_PATTERN = /session id:\s*([0-9a-f-]{36})/i;
 const PNG_PATTERN = /\.png$/i;
 const BWRAP_PATTERN = /bwrap:|Failed RTM_NEWADDR/i;
@@ -161,7 +163,7 @@ export function createCodexCliProvider(config) {
       if (images && images.length > 0) {
         throw new Error('The codex-cli provider does not support image input.');
       }
-      if (size) {
+      if (normalizeImageSize(size)) {
         throw new Error('The codex-cli provider does not support output size selection.');
       }
 
