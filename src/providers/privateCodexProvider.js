@@ -124,7 +124,7 @@ async function writeDebugArtifacts({
  */
 export function createPrivateCodexProvider(config) {
   return {
-    async generateImage({ prompt, model, outputPath, dryRun = false, debug = false, debugDir, fetchImpl = globalThis.fetch, images, size }) {
+    async generateImage({ prompt, model, outputPath, dryRun = false, debug = false, debugDir, fetchImpl = globalThis.fetch, images, size, imageModel, strictSize = true }) {
       const session = await loadCodexSession(config);
       const validation = validateCodexSession(session);
       const request = buildResponsesRequest({
@@ -134,13 +134,14 @@ export function createPrivateCodexProvider(config) {
         model,
         originator: config.defaultOriginator,
         images,
-        size
+        size,
+        imageModel
       });
 
       if (dryRun) {
         return {
           mode: 'dry-run',
-          warnings: validation.warnings,
+          warnings: [...validation.warnings, ...request.warnings],
           request: request.sanitized
         };
       }
@@ -150,7 +151,7 @@ export function createPrivateCodexProvider(config) {
       }
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 300_000);
+      const timeoutId = setTimeout(() => controller.abort(), 600_000);
 
       const response = await fetchImpl(request.url, {
         method: 'POST',
@@ -222,11 +223,18 @@ export function createPrivateCodexProvider(config) {
       }
 
       const generation = extractImageGeneration(parsed);
-      const savedPath = await saveImage({ resultBase64: generation.resultBase64, outputPath });
+      const sizeWarnings = [];
+      const savedPath = await saveImage({
+        resultBase64: generation.resultBase64,
+        outputPath,
+        expectedSize: request.body.tools[0].size,
+        strictSize,
+        warnings: sizeWarnings
+      });
 
       return {
         mode: 'live',
-        warnings: validation.warnings,
+        warnings: [...validation.warnings, ...request.warnings, ...sizeWarnings],
         responseId: parsed.responseId,
         sessionId: request.sessionId,
         savedPath,

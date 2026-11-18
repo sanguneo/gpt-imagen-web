@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveConfig, UNSUPPORTED_WARNING } from '../config.js';
+import { DEFAULT_CODEX_MODEL, resolveConfig, UNSUPPORTED_WARNING } from '../config.js';
 import { createProvider } from '../providers/createProvider.js';
 import { SUPPORTED_PROVIDERS } from '../providers/providerTypes.js';
 
@@ -153,11 +153,14 @@ Usage:
 Options:
   --prompt <text>               Required prompt text
   --output <path>               Output PNG path
-  --model <name>                Model name (default: CODEX_IMAGEGEN_MODEL or gpt-5.4)
+  --model <name>                Codex orchestration model (default: CODEX_IMAGEGEN_MODEL or ${DEFAULT_CODEX_MODEL})
+                                Current choices include gpt-5.6-sol, gpt-5.6-terra,
+                                gpt-5.6-luna, gpt-5.5, gpt-5.4, gpt-5.4-mini
   --provider <name>             Provider: private-codex | codex-cli | auto
   --image <path>                Input image path (can be used multiple times)
-  --size <value>                Output image size: auto, 1024x1024, 1536x1024, 1024x1536,
-                                2048x2048, 2048x1152, 3840x2160, 2160x3840 (private-codex only)
+  --size <value>                Output size (private-codex only): auto, 1024x1024,
+                                1536x1024, 1024x1536, 2048x2048, 2048x1152,
+                                3840x2160, 2160x3840
   --dry-run                     Print the request shape without calling the backend
   --debug                       Write sanitized request/response dumps
   --debug-dir <path>            Directory for sanitized debug artifacts

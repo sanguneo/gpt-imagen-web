@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createCodexCliProvider } from './codexCliProvider.js';
 import { createPrivateCodexProvider } from './privateCodexProvider.js';
+import { normalizeImageSize } from '../codex/imageGenerationOptions.js';
 import {
   AUTO_PROVIDER,
   CODEX_CLI_PROVIDER,
@@ -25,11 +26,12 @@ export function createProvider(config) {
     case AUTO_PROVIDER:
       return {
         async generateImage(args) {
+          const constrainedSize = normalizeImageSize(args?.size);
           try {
             const result = await privateProvider.generateImage(args);
             return { ...result, provider: PRIVATE_CODEX_PROVIDER };
           } catch (privateError) {
-            if (args?.size) {
+            if (constrainedSize) {
               const error = new Error('The auto provider cannot fall back to codex-cli when --size is set because codex-cli cannot honor output dimensions.');
               error.code = 'SIZE_UNSUPPORTED_BY_FALLBACK';
               error.cause = privateError;
