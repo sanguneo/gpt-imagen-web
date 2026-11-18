@@ -71,10 +71,10 @@ async function parseJob(request) {
   if (type.startsWith("multipart/form-data")) {
     const form = await request.formData();
     for (const key of form.keys()) {
-      if (!["prompt", "negative", "size", "seed", "images", "requestId"].includes(key)) throw new ServiceError("Unknown field", 400);
+      if (!["prompt", "negative", "size", "seed", "images", "requestId", "mode"].includes(key)) throw new ServiceError("Unknown field", 400);
     }
     fields = {};
-    for (const key of ["prompt", "negative", "size", "seed", "requestId"]) {
+    for (const key of ["prompt", "negative", "size", "seed", "requestId", "mode"]) {
       const values = form.getAll(key);
       if (values.length > 1 || values.some((value) => typeof value !== "string")) throw new ServiceError(`Invalid ${key}`, 400);
       if (values.length) fields[key] = values[0];
@@ -83,14 +83,15 @@ async function parseJob(request) {
   } else if (type.startsWith("application/json")) {
     fields = await request.json();
     if (!fields || typeof fields !== "object" || Array.isArray(fields)
-      || Object.keys(fields).some((key) => !["prompt", "negative", "size", "seed", "requestId"].includes(key))) {
-      throw new ServiceError("Expected prompt, negative, size and optional seed; JSON does not accept references", 400);
+      || Object.keys(fields).some((key) => !["prompt", "negative", "size", "seed", "requestId", "mode"].includes(key))) {
+      throw new ServiceError("Expected prompt, negative, size and optional seed or mode; JSON does not accept references", 400);
     }
   } else {
     throw new ServiceError("Use multipart/form-data or application/json", 415);
   }
   if (typeof fields.prompt !== "string" || !fields.prompt.trim() || fields.prompt.length > 60000) throw new ServiceError("Invalid prompt (1..60000 characters)", 400);
   if (fields.requestId !== undefined && (typeof fields.requestId !== "string" || !/^[0-9a-f]{20}$/.test(fields.requestId))) throw new ServiceError("Invalid requestId (20 lowercase hex characters)", 400);
+  if (fields.mode !== undefined && fields.mode !== "normal" && fields.mode !== "fast") throw new ServiceError("Invalid mode (normal or fast)", 400);
   if (fields.negative !== undefined && (typeof fields.negative !== "string" || fields.negative.length > 60000)) throw new ServiceError("Invalid negative", 400);
   if (typeof fields.size !== "string" || !/^\d{3,4}x\d{3,4}$/.test(fields.size)
     || !fields.size.split("x").map(Number).every((n) => n >= 256 && n <= 2048 && n % 32 === 0)) throw new ServiceError("Invalid size", 400);
@@ -113,7 +114,7 @@ async function parseJob(request) {
     if (!mime || mime !== image.type) throw new ServiceError("References must be PNG, JPEG, WebP or GIF with matching MIME type", 400);
     refs.push({ bytes, extension: { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[mime] });
   }
-  return { prompt: fields.prompt, negative: fields.negative ?? "", size: fields.size, seed, refs, requestId: fields.requestId ?? null };
+  return { prompt: fields.prompt, negative: fields.negative ?? "", size: fields.size, seed, refs, requestId: fields.requestId ?? null, mode: fields.mode ?? "normal" };
 }
 
 async function main() {
@@ -147,6 +148,7 @@ async function main() {
   const publicJob = (job) => ({
     id: job.id, status: job.status, stage: job.stage,
     queuePosition: job.status === "queued" ? queue.indexOf(job.id) + 1 : 0,
+    mode: job.input?.mode ?? "normal",
     createdAt: job.createdAt, startedAt: job.startedAt, finishedAt: job.finishedAt, error: job.error,
   });
 
@@ -160,6 +162,7 @@ async function main() {
     const args = ["--neg", job.input.negative];
     if (job.input.seed !== null) args.push("--seed", String(job.input.seed));
     for (const ref of job.input.refs) args.push("--ref", join(directory, ref));
+    if (job.input.mode === "fast") args.push("--fast");
     args.push("--", job.input.prompt, job.input.size);
     const stdout = openSync(join(directory, "stdout.log"), "w", 0o600);
     const stderr = openSync(join(directory, "stderr.log"), "w", 0o600);

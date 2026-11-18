@@ -4,6 +4,9 @@ The adjacent `service.mjs` is the source snapshot for review and packaging. It m
 remain byte-identical to `~/qwen-image/service.mjs`. Installation, launchd, token
 creation, OCI configuration and real generation are the parent's responsibility.
 
+The generator source snapshots and pinned 2.1 Lightning installation, schedule
+and license notes are documented in [lightning.md](./lightning.md).
+
 Run the service with Bun on macOS. Configure:
 
 | Variable | Default / meaning |
@@ -19,8 +22,12 @@ startup and never printed. Comparison hashes both header values to fixed-length
 SHA-256 digests and uses timing-safe equality. No CORS is enabled.
 
 `POST /jobs` accepts multipart fields `prompt`, `negative`, `size`, `seed`,
-`requestId`, and repeatable file field `images` (0..16). JSON accepts the same
-scalar fields and no references. `prompt` is nonempty, up to 60000 characters;
+`requestId`, `mode`, and repeatable file field `images` (0..16). JSON accepts the same
+scalar fields and no references. `mode` is optional, exactly `normal` or `fast`;
+omitted means `normal`. Any other value, type or duplicate field returns 400. The
+mode is stored in the job input, and the generator receives `--fast` (after any
+`--ref` options, before `--`) only for `fast`. Durable jobs written before this
+field existed have no mode and run as `normal`. `prompt` is nonempty, up to 60000 characters;
 `negative` defaults to empty and has the same cap. `size` is required `WxH`, both
 sides 256..2048, multiples of 32. `seed` is optional, a nonnegative safe integer
 (decimal text in multipart). `requestId` is optional, exactly 20 lowercase hex
@@ -41,7 +48,7 @@ references follow ComfyUI's existing frame handling; the service does not
 flatten or transcode them. This was checked with a tiny local GIF, without model
 generation. Full animated-GIF generation remains untested.
 
-`GET /jobs/:id` returns `{id,status,stage,queuePosition,createdAt,startedAt,
+`GET /jobs/:id` returns `{id,status,stage,queuePosition,mode,createdAt,startedAt,
 finishedAt,error}`. Status is `queued`, `running`, `done` or `error`. Stages are
 plain descriptions (`queued`, `generating`, `done`, `error`); no synthetic
 percentage or estimated time is exposed. Queue position is one-based when queued,
@@ -74,7 +81,7 @@ covers service jobs only. Persistent jobs, refs, logs, idempotency keys and imag
 are retained indefinitely; the parent must choose a retention policy and preserve
 metadata with images. Back up the whole store when the service is stopped.
 
-The PR includes `qwen-service/service-check.mjs`, an unchanged copy of
+The PR includes `qwen-service/service-check.mjs`, a copy of
 `~/qwen-image/service.test.mjs`. Its filename and location keep Bun-specific tests
 outside Node's default `node --test` discovery. It resolves the service relative
 to itself, so this snapshot tests the adjacent packaged `service.mjs`.

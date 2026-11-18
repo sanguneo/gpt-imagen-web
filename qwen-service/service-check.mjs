@@ -51,8 +51,8 @@ import { watch } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 const root = import.meta.dir;
-const {positionals:[prompt,size], values} = parseArgs({allowPositionals:true,options:{neg:{type:"string"},seed:{type:"string"},ref:{type:"string",multiple:true,default:[]}}});
-const options = ["--neg",values.neg,...(values.seed === undefined ? [] : ["--seed",values.seed]),...values.ref.flatMap(ref => ["--ref",ref])];
+const {positionals:[prompt,size], values} = parseArgs({allowPositionals:true,options:{neg:{type:"string"},seed:{type:"string"},ref:{type:"string",multiple:true,default:[]},fast:{type:"boolean"}}});
+const options = ["--neg",values.neg,...(values.seed === undefined ? [] : ["--seed",values.seed]),...values.ref.flatMap(ref => ["--ref",ref]),...(values.fast ? ["--fast"] : [])];
 await mkdir(join(root, "exclusive"));
 await appendFile(join(root, "calls"), JSON.stringify({prompt, size, options, pid:process.pid})+"\\n");
 if (prompt === "hold") await new Promise((resolve) => {
@@ -141,11 +141,86 @@ test.each([
   { size: "288x2050" }, { size: "2049x256" }, { size: "512" },
   { seed: -1 }, { seed: 1.1 }, { seed: Number.MAX_SAFE_INTEGER + 1 }, { seed: "" },
   { requestId: "ABCDEF01234567890123" }, { requestId: "1234" }, { images: [] },
+  { mode: "turbo" }, { mode: "FAST" }, { mode: "" }, { mode: true }, { mode: null }, { mode: ["fast"] }, { mode: 1 },
 ])("invalid JSON field is rejected: %j", async (invalid) => {
   const { start } = await fixture();
   const { http } = await start();
   const response = await http("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: "ok", size: "256x256", ...invalid }) });
   expect(response.status).toBe(400);
+});
+
+test.each([
+  { label: "omitted", body: {}, options: ["--neg", ""], mode: "normal" },
+  { label: "explicit normal", body: { mode: "normal" }, options: ["--neg", ""], mode: "normal" },
+  { label: "fast", body: { mode: "fast", seed: 7 }, options: ["--neg", "", "--seed", "7", "--fast"], mode: "fast" },
+])("JSON mode $label reaches the generator invocation", async ({ body, options, mode }) => {
+  const { root, start } = await fixture();
+  const app = await start();
+  const id = await app.submit(body);
+  const job = await app.state(id, "done");
+  expect(job.mode).toBe(mode);
+  const calls = JSON.parse((await readFile(join(root, "calls"), "utf8")).trim());
+  expect(calls.options).toEqual(options);
+  expect(calls.prompt).toBe("ok");
+  expect(JSON.parse(await readFile(join(root, "jobs", id, "job.json"), "utf8")).input.mode).toBe(mode);
+});
+
+test("multipart fast mode with references reaches the generator invocation", async () => {
+  const { root, start } = await fixture();
+  const app = await start();
+  const form = new FormData();
+  form.set("prompt", "ok");
+  form.set("size", "256x256");
+  form.set("mode", "fast");
+  form.append("images", new Blob([png], { type: "image/png" }), "ref.png");
+  const response = await app.http("/jobs", { method: "POST", body: form });
+  expect(response.status).toBe(202);
+  const { id } = await response.json();
+  expect((await app.state(id, "done")).mode).toBe("fast");
+  const calls = JSON.parse((await readFile(join(root, "calls"), "utf8")).trim());
+  expect(calls.options).toEqual(["--neg", "", "--ref", join(root, "jobs", id, "ref-0.png"), "--fast"]);
+});
+
+test.each(["turbo", "FAST", "", "duplicate", "file"])("invalid multipart mode rejected: %j", async (kind) => {
+  const { root, start } = await fixture();
+  const app = await start();
+  const form = new FormData();
+  form.set("prompt", "ok");
+  form.set("size", "256x256");
+  if (kind === "duplicate") { form.append("mode", "fast"); form.append("mode", "fast"); }
+  else if (kind === "file") form.set("mode", new Blob(["fast"], { type: "text/plain" }), "mode.txt");
+  else form.set("mode", kind);
+  expect((await app.http("/jobs", { method: "POST", body: form })).status).toBe(400);
+  expect(await Bun.file(join(root, "calls")).exists()).toBe(false);
+});
+
+test("queued fast mode survives restart and legacy jobs without mode run normal", async () => {
+  const { root, start } = await fixture();
+  const legacy = crypto.randomUUID();
+  await mkdir(join(root, "jobs", legacy));
+  await writeFile(join(root, "jobs", legacy, "job.json"), JSON.stringify({
+    id: legacy, requestId: null, status: "queued", stage: "queued", createdAt: "2000-01-01T00:00:00.000Z",
+    startedAt: null, finishedAt: null, error: null, pid: null,
+    input: { prompt: "legacy", negative: "", size: "256x256", seed: null, refs: [] },
+  }));
+  const holder = await start();
+  expect((await holder.state(legacy, "done")).mode).toBe("normal");
+  // Hold a running job so the fast job is still queued when the service is killed.
+  const running = await holder.submit({ prompt: "hold" });
+  await observe(root, async () => (await readFile(join(root, "calls"), "utf8")).trim().split("\n").length === 2);
+  const queued = await holder.submit({ prompt: "fast queued", mode: "fast" });
+  expect((await holder.status(queued)).mode).toBe("fast");
+  expect((await holder.status(queued)).queuePosition).toBe(1);
+  await holder.stop("SIGKILL");
+  await rm(join(root, "exclusive"), { recursive: true });
+  const second = await start();
+  expect((await second.status(running)).status).toBe("error");
+  expect((await second.status(queued)).mode).toBe("fast");
+  await second.state(queued, "done");
+  const calls = (await readFile(join(root, "calls"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+  expect(calls.map((call) => call.prompt)).toEqual(["legacy", "hold", "fast queued"]);
+  expect(calls[0].options).toEqual(["--neg", ""]);
+  expect(calls[2].options).toEqual(["--neg", "", "--fast"]);
 });
 
 test("multipart refs and options reach generation and return a durable PNG", async () => {

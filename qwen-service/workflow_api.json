@@ -1,0 +1,11 @@
+{
+  "451": {"class_type":"UnetLoaderGGUF","inputs":{"unet_name":"qwen-image-2.1-step90000-Q8_0.gguf"}},
+  "453": {"class_type":"CLIPLoader","inputs":{"clip_name":"qwen3vl_8b_int8_convrot.safetensors","type":"qwen_image","device":"default"}},
+  "454": {"class_type":"VAELoader","inputs":{"vae_name":"qwen_image_2.1_vae_bf16.safetensors"}},
+  "452": {"class_type":"TextEncodeQwenImage21","inputs":{"clip":["453",0],"prompt":"a cat sitting on a croissant, studio photo","negative_prompt":" ","resolution":1024}},
+  "456": {"class_type":"EmptyLatentImage","inputs":{"width":1024,"height":1024,"batch_size":1}},
+  "458": {"class_type":"KSampler","inputs":{"model":["480",0],"positive":["452",0],"negative":["452",1],"latent_image":["456",0],"seed":12347,"steps":35,"cfg":5,"sampler_name":"er_sde","scheduler":"simple","denoise":1}},
+  "480": {"class_type":"QwenImage21Cache","inputs":{"model":["451",0],"device":"auto","dtype":"default"}},
+  "457": {"class_type":"VAEDecode","inputs":{"samples":["458",0],"vae":["454",0]}},
+  "485": {"class_type":"SaveImage","inputs":{"images":["457",0],"filename_prefix":"qwen_image"}}
+}
