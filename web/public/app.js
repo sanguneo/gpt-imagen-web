@@ -281,8 +281,6 @@ async function renderIpmptPickerInline(entry, mount) {
 async function openIpmptSave(id) {
   try {
     const { entry } = await api(`/api/history/${id}`);
-    qwenDetailId = entry.imageModel === QWEN_MODEL && ['queued', 'running'].includes(entry.status) ? id : null;
-    const scrollTop = modal.hidden ? 0 : modal.querySelector('.dialog').scrollTop;
     if (entry.status !== 'done' || !entry.imageUrl) throw new Error('완료된 이미지만 저장할 수 있습니다.');
     modalBody.innerHTML = `<h2>IPMPT에 저장</h2>
       <img class="detailImg" src="${entry.imageUrl}" alt="저장할 이미지">
@@ -399,6 +397,8 @@ function formatErrorDetails(entry) {
 async function openDetail(id) {
   try {
     const { entry } = await api(`/api/history/${id}`);
+    qwenDetailId = entry.imageModel === QWEN_MODEL && ['queued', 'running'].includes(entry.status) ? id : null;
+    const scrollTop = modal.hidden ? 0 : modal.querySelector('.dialog').scrollTop;
     const image = entry.imageUrl ? `<img class="detailImg" src="${entry.imageUrl}" alt="생성 이미지">` : '';
     const retryAction = entry.status === 'error' ? '<button class="retryDetail" type="button" data-detail-retry="true">재시도</button>' : '';
     const deleteAction = (entry.status === 'done' || entry.status === 'error') ? '<button class="deleteDetail" type="button" data-detail-delete="true">삭제</button>' : '';

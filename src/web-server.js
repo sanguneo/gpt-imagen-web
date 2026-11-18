@@ -354,7 +354,7 @@ await failInterruptedJobsOnBoot();
 async function runGeneration(entry, { images }) {
   const started = Date.now();
   entry.status = 'running';
-  entry.startedAt = new Date(started).toISOString();
+  if (entry.imageModel !== QWEN_MODEL || !entry.startedAt) entry.startedAt = new Date(started).toISOString();
   await writeHistory(entry);
 
   try {
@@ -387,7 +387,9 @@ async function runGeneration(entry, { images }) {
     entry.revisedPrompt = result.revisedPrompt || result.response?.lastMessage || null;
     entry.responsePrompt = entry.revisedPrompt;
     entry.warnings = result.warnings || [];
-    entry.elapsedMs = Date.now() - started;
+    entry.elapsedMs = entry.imageModel === QWEN_MODEL
+      ? Date.parse(entry.finishedAt) - Date.parse(entry.startedAt)
+      : Date.now() - started;
     await writeHistory(entry);
   } catch (error) {
     entry.status = 'error';
@@ -404,7 +406,9 @@ async function runGeneration(entry, { images }) {
       body: error.body ? String(error.body).slice(0, 4000) : null,
       cause: error.cause?.message || null
     };
-    entry.elapsedMs = Date.now() - started;
+    entry.elapsedMs = entry.imageModel === QWEN_MODEL
+      ? Date.parse(entry.finishedAt) - Date.parse(entry.startedAt)
+      : Date.now() - started;
     await writeHistory(entry).catch(() => {});
   } finally {
     runningJobs.delete(entry.id);

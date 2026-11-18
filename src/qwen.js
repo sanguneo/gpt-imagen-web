@@ -92,13 +92,13 @@ export async function generateQwenImage(entry, { images, outputPath, onProgress 
   // Queue time is separate from the two-hour generation budget.
   while (true) {
     const job = await (await qwenRequest(`/jobs/${entry.qwenJobId}`)).json();
+    if (job.startedAt) entry.startedAt = job.startedAt;
     switch (job.status) {
       case 'queued':
       case 'running':
         entry.status = job.status;
         entry.stage = typeof job.stage === 'string' ? job.stage : job.status;
         entry.queuePosition = Number.isInteger(job.queuePosition) ? job.queuePosition : null;
-        if (job.startedAt) entry.startedAt = job.startedAt;
         await onProgress();
         if (job.status === 'running' && Date.now() - Date.parse(entry.startedAt) > QWEN_TIMEOUT_MS) {
           throw new QwenError('맥 Qwen 생성 시간이 2시간 제한을 초과했습니다.', 504);
