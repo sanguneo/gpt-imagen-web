@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import express from 'express';
 import multer from 'multer';
-import { QWEN_MODEL, QWEN_TIMEOUT_MS, assertQwenConfigured, generateQwenImage, normalizeQwenSize, parseQwenSeed } from './qwen.js';
+import { QWEN_MODEL, QWEN_MODELS, QWEN_TIMEOUT_MS, assertQwenConfigured, generateQwenImage, isQwenModel, normalizeQwenSize, parseQwenSeed } from './qwen.js';
 
 import {
   CODEX_MODEL_CHOICES,
@@ -35,7 +35,7 @@ const providerName = process.env.IMAGEN_PROVIDER || process.env.CODEX_IMAGEGEN_P
 // its API/image-copy traffic through a public domain and back to this host.
 const ipmptOrigin = (process.env.IPMPT_LOCAL_ORIGIN || 'http://127.0.0.1:8791').replace(/\/$/, '');
 const ALLOWED_MODELS = CODEX_MODEL_CHOICES;
-const webImageModels = [...IMAGE_MODEL_CHOICES, QWEN_MODEL];
+const webImageModels = [...IMAGE_MODEL_CHOICES, ...QWEN_MODELS];
 const defaultModel = process.env.IMAGEN_MODEL || process.env.CODEX_IMAGEGEN_MODEL || process.env.CODEX_MODEL || DEFAULT_CODEX_MODEL;
 const model = ALLOWED_MODELS.includes(defaultModel) ? defaultModel : DEFAULT_CODEX_MODEL;
 function resolveStoredModel(value) {
@@ -106,7 +106,7 @@ function pumpQueue() {
   }
 }
 function enqueueGeneration(entry, images) {
-  if (entry.imageModel === QWEN_MODEL) {
+  if (isQwenModel(entry.imageModel)) {
     const promise = runGeneration(entry, { images });
     qwenJobs.set(entry.id, promise);
     return;
@@ -189,10 +189,11 @@ function publicEntry(entry, { fullPrompt = true } = {}) {
     finishedAt: entry.finishedAt || null,
     promptPreview: String(entry.prompt || '').slice(0, 180),
     size: entry.size || 'auto',
-    model: entry.imageModel === QWEN_MODEL ? null : resolveStoredModel(entry.model),
+    model: isQwenModel(entry.imageModel) ? null : resolveStoredModel(entry.model),
     imageModel: resolveStoredImageModel(entry.imageModel),
     stage: entry.stage || null,
     queuePosition: entry.queuePosition ?? null,
+    // Only the normal model has measured timings; the fast model reports none until it is measured.
     estimatedTime: entry.imageModel === QWEN_MODEL ? '512×512 약 7분 · 1024×1024 약 28분 · 참조·크기에 따라 1시간 이상, 생성 제한 2시간' : null,
     negative: entry.negative || '',
     seed: entry.seed ?? null,
@@ -319,7 +320,7 @@ function isTimedOutEntry(entry) {
   if (!entry || !['queued', 'running'].includes(entry.status)) return false;
   if (isActiveJob(entry.id)) return false;
   const base = Date.parse(entry.startedAt || entry.createdAt || entry.updatedAt || '');
-  return Number.isFinite(base) && Date.now() - base > (entry.imageModel === QWEN_MODEL ? QWEN_TIMEOUT_MS : generationTimeoutMs);
+  return Number.isFinite(base) && Date.now() - base > (isQwenModel(entry.imageModel) ? QWEN_TIMEOUT_MS : generationTimeoutMs);
 }
 async function expireTimedOutEntry(entry) {
   if (!isTimedOutEntry(entry)) return entry;
@@ -338,7 +339,7 @@ async function failInterruptedJobsOnBoot() {
     if (!ID_PATTERN.test(id)) return;
     const entry = await readHistory(id).catch(() => null);
     if (!entry || !['queued', 'running'].includes(entry.status)) return;
-    if (entry.imageModel === QWEN_MODEL) {
+    if (isQwenModel(entry.imageModel)) {
       // The Mac owns execution. The stable request ID makes resubmission idempotent
       // even if this process exited before the remote ID was saved.
       enqueueGeneration(entry, await loadInputImages(entry.inputImages || []));
@@ -353,15 +354,16 @@ await failInterruptedJobsOnBoot();
 
 async function runGeneration(entry, { images }) {
   const started = Date.now();
+  const isQwen = isQwenModel(entry.imageModel);
   entry.status = 'running';
-  if (entry.imageModel !== QWEN_MODEL || !entry.startedAt) entry.startedAt = new Date(started).toISOString();
+  if (!isQwen || !entry.startedAt) entry.startedAt = new Date(started).toISOString();
   await writeHistory(entry);
 
   try {
     const outputPath = path.join(outputDir, `${entry.id}.png`);
     const entryDebugDir = path.join(debugDir, entry.id);
     let result;
-    if (entry.imageModel === QWEN_MODEL) {
+    if (isQwen) {
       result = await generateQwenImage(entry, { images, outputPath, onProgress: () => writeHistory(entry) });
     } else {
       const provider = createProvider(resolveConfig({ provider: providerName }));
@@ -387,7 +389,7 @@ async function runGeneration(entry, { images }) {
     entry.revisedPrompt = result.revisedPrompt || result.response?.lastMessage || null;
     entry.responsePrompt = entry.revisedPrompt;
     entry.warnings = result.warnings || [];
-    entry.elapsedMs = entry.imageModel === QWEN_MODEL
+    entry.elapsedMs = isQwen
       ? Date.parse(entry.finishedAt) - Date.parse(entry.startedAt)
       : Date.now() - started;
     await writeHistory(entry);
@@ -406,7 +408,7 @@ async function runGeneration(entry, { images }) {
       body: error.body ? String(error.body).slice(0, 4000) : null,
       cause: error.cause?.message || null
     };
-    entry.elapsedMs = entry.imageModel === QWEN_MODEL
+    entry.elapsedMs = isQwen
       ? Date.parse(entry.finishedAt) - Date.parse(entry.startedAt)
       : Date.now() - started;
     await writeHistory(entry).catch(() => {});
@@ -426,7 +428,7 @@ app.post('/api/generate', upload.array('images', maxImages), async (req, res) =>
     const body = req.body || {};
     const prompt = cleanPrompt(body.prompt);
     const requestedImageModel = resolveRequestedImageModel(body.imageModel);
-    const isQwen = requestedImageModel === QWEN_MODEL;
+    const isQwen = isQwenModel(requestedImageModel);
     if (isQwen) assertQwenConfigured();
     const size = isQwen ? normalizeQwenSize(body.size) : resolveRequestedSize(body.size);
     const requestedModel = isQwen ? null : resolveRequestedModel(body.model);
@@ -518,7 +520,7 @@ app.post('/api/history/:id/retry', async (req, res) => {
       finishedAt: null,
       prompt: source.prompt,
       size: source.size || 'auto',
-      model: source.imageModel === QWEN_MODEL ? null : resolveStoredModel(source.model),
+      model: isQwenModel(source.imageModel) ? null : resolveStoredModel(source.model),
       imageModel: resolveStoredImageModel(source.imageModel),
       negative: source.negative || '',
       ...(source.seed === undefined ? {} : { seed: source.seed }),
@@ -529,7 +531,7 @@ app.post('/api/history/:id/retry', async (req, res) => {
       errorCode: null,
       errorDetails: null,
       debugUrl: null,
-      provider: source.imageModel === QWEN_MODEL ? 'qwen-local' : providerName,
+      provider: isQwenModel(source.imageModel) ? 'qwen-local' : providerName,
       responseId: null,
       revisedPrompt: null,
       responsePrompt: null,

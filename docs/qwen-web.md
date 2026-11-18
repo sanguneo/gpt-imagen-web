@@ -9,12 +9,18 @@ uncommitted files at upstream revision 27db3d9. This change preserves those
 sources so the web application is reproducible from this repository.
 
 UI brief: the primary action remains "생성 시작". Reading priorities are prompt,
-model and size/reference controls, then progress and saved results. The Qwen
-option follows the existing four GPT options. Negative prompt and seed are
-shown only for Qwen. Existing form fields, history, details, retry, and IPMPT
-save actions remain available. No new layout or visual style is introduced.
-The existing field, row, message, card, detail and pickerSearch primitives and
-the `web/public/style.css` palette, spacing and typography are reused.
+model and size/reference controls, then progress and saved results. The two
+Qwen options follow the existing four GPT options: normal first, then the
+4-step fast option directly below it. Negative prompt and seed are shown only
+for Qwen. With the fast option selected, the negative field shows a one-line
+hint that it has little effect at CFG 1; the hint is linked to the field with
+`aria-describedby` only while it is visible. Existing form fields, history,
+details, retry, and IPMPT save actions remain available. No new layout or
+visual style is introduced. The existing field, row, message, card, detail and
+pickerSearch primitives and the `web/public/style.css` palette, spacing and
+typography are reused; the hint adds one `hint` primitive that takes the
+label's size and colour at regular weight. Left out on purpose: time estimates
+or speed claims for the fast option, which has no measurements yet.
 
 Layout: retain the existing document scroller and responsive form grid;
 Qwen options use the same row/field primitives; modal details own their scroll.
@@ -32,6 +38,15 @@ error; completed images and queued jobs remain durable. Manual retry creates
 a new job. Qwen jobs have their own web tracking map so waiting on the Mac does
 not occupy the existing Codex concurrency slots.
 
+`qwen-image-2.1` and `qwen-image-2.1-fast` share every Qwen code path: job
+creation, retry, restart recovery, progress, history and details. The history
+entry stores the selected model, and each submission derives the Mac service
+`mode` from it: `fast` for `qwen-image-2.1-fast`, `normal` otherwise. A job
+resubmitted after a restart therefore keeps its original mode. `mode` is always
+sent, so the Mac service must be a build that accepts it; earlier builds reject
+unknown multipart fields with HTTP 400. Both models are saved to IPMPT as
+"Qwen-Image 2.1".
+
 Qwen auto size means 1024x1024. Each side must be 256–2048 and a multiple of
 32. The web form offers 512x512 for a shorter run. Existing GPT sizes remain
 unchanged. Negative prompt, optional integer seed, and all attached reference
@@ -41,3 +56,6 @@ Estimated times come from this Mac's prior measurements: about 7 minutes for
 512x512, 28 minutes for 1024x1024 and over an hour for some reference jobs.
 The UI shows elapsed time, actual stage and queue position rather than a
 fabricated completion percentage. Active Qwen jobs refresh every five seconds.
+These timings belong to the normal model. The fast model reports no estimate
+(`estimatedTime` is null), so its progress line shows only the two-hour limit
+and the form guidance omits the timing sentence until fast runs are measured.

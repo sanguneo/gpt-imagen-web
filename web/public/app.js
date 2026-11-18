@@ -15,7 +15,7 @@ let lookedUpIpIds = new Set();
 let isLoadingHistory = false;
 let hasActiveQwen = false;
 let qwenDetailId = null;
-const QWEN_MODEL = 'qwen-image-2.1';
+const QWEN_MODELS = ['qwen-image-2.1', 'qwen-image-2.1-fast'];
 const refreshSettings = loadRefreshSettings();
 const IPMPT_API = '/api/ipmpt';
 const IPMPT_MODEL = 'OpenAI - Codex';
@@ -49,14 +49,17 @@ function escapeHtml(value) {
 function statusLabel(status) {
   return { queued: '대기', running: '생성중', done: '완료', error: '실패' }[status] || status;
 }
+function isQwenModel(model) {
+  return QWEN_MODELS.includes(model);
+}
 function qwenProgress(item) {
-  if (item.imageModel !== QWEN_MODEL || !['queued', 'running'].includes(item.status)) return '';
+  if (!isQwenModel(item.imageModel) || !['queued', 'running'].includes(item.status)) return '';
   const queue = item.queuePosition > 0 ? ` · 대기 ${item.queuePosition}번째` : '';
   const stage = { queued: '대기 중', generating: '맥에서 이미지 생성 중', running: '맥에서 이미지 생성 중' }[item.stage] || item.stage || statusLabel(item.status);
   return `${stage}${queue} · ${item.estimatedTime || '생성 제한 2시간'}`;
 }
 function updateModelControls() {
-  const qwen = form.imageModel.value === QWEN_MODEL;
+  const qwen = isQwenModel(form.imageModel.value);
   form.model.disabled = qwen;
   form.model.closest('.field').hidden = qwen;
   form.imageModel.closest('.field').classList.toggle('qwenModelField', qwen);
@@ -64,6 +67,11 @@ function updateModelControls() {
   document.querySelector('#qwenHint').hidden = !qwen;
   form.negative.disabled = !qwen;
   form.seed.disabled = !qwen;
+  for (const note of document.querySelectorAll('[data-qwen-model]')) note.hidden = note.dataset.qwenModel !== form.imageModel.value;
+  // A hidden description is still announced, so the field only references the hint while it shows.
+  const negativeHint = document.querySelector('#negativeHint');
+  if (negativeHint.hidden) form.negative.removeAttribute('aria-describedby');
+  else form.negative.setAttribute('aria-describedby', negativeHint.id);
   for (const option of form.size.options) {
     const compatible = option.value === 'auto' || option.value.split('x').map(Number).every((n) => n >= 256 && n <= 2048 && n % 32 === 0);
     option.disabled = qwen ? !compatible : option.hasAttribute('data-qwen-only');
@@ -110,7 +118,7 @@ async function refreshSavedState(items) {
 }
 
 function renderHistory(items, pagination) {
-  hasActiveQwen = items.some((item) => item.imageModel === QWEN_MODEL && ['queued', 'running'].includes(item.status));
+  hasActiveQwen = items.some((item) => isQwenModel(item.imageModel) && ['queued', 'running'].includes(item.status));
   currentPagination = pagination;
   currentPage = pagination?.page || currentPage;
   const cards = items.length ? items.map(renderCard).join('') : '<p class="empty">아직 생성 기록이 없습니다.</p>';
@@ -240,7 +248,7 @@ function ipmptPayload(entry) {
   return {
     promptText: entry.prompt,
     imageUrl: entry.imageUrl,
-    generationModel: entry.imageModel === QWEN_MODEL ? 'Qwen-Image 2.1' : IPMPT_MODEL,
+    generationModel: isQwenModel(entry.imageModel) ? 'Qwen-Image 2.1' : IPMPT_MODEL,
     source: IPMPT_SOURCE,
     sourceSite: 'imagen',
     sourceId: entry.id,
@@ -252,7 +260,7 @@ function renderIpmptInline(entry, isSaved) {
   if (entry.status !== 'done' || !entry.imageUrl) return '';
   return `<section class="ipmptPanel">
     <h3>${isSaved ? 'IPMPT 저장됨' : 'IPMPT 저장'}</h3>
-    <p class="sub">생성모델: ${entry.imageModel === QWEN_MODEL ? 'Qwen-Image 2.1' : IPMPT_MODEL} · 출처: ${IPMPT_SOURCE}</p>
+    <p class="sub">생성모델: ${isQwenModel(entry.imageModel) ? 'Qwen-Image 2.1' : IPMPT_MODEL} · 출처: ${IPMPT_SOURCE}</p>
     <div class="detailActions">
       <button class="copyBtn" type="button" data-ipmpt-new="true">새 프롬프트 이미지로 저장</button>
       <button class="copyBtn" type="button" data-ipmpt-add="true">기존 프롬프트 이미지에 추가</button>
@@ -397,7 +405,7 @@ function formatErrorDetails(entry) {
 async function openDetail(id) {
   try {
     const { entry } = await api(`/api/history/${id}`);
-    qwenDetailId = entry.imageModel === QWEN_MODEL && ['queued', 'running'].includes(entry.status) ? id : null;
+    qwenDetailId = isQwenModel(entry.imageModel) && ['queued', 'running'].includes(entry.status) ? id : null;
     const scrollTop = modal.hidden ? 0 : modal.querySelector('.dialog').scrollTop;
     const image = entry.imageUrl ? `<img class="detailImg" src="${entry.imageUrl}" alt="생성 이미지">` : '';
     const retryAction = entry.status === 'error' ? '<button class="retryDetail" type="button" data-detail-retry="true">재시도</button>' : '';

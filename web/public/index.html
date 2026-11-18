@@ -28,6 +28,7 @@
               <option value="gpt-image-2.5-flare">gpt-image-2.5 · flare</option>
               <option value="gpt-image-2.5-sunburst">gpt-image-2.5 · sunburst</option>
               <option value="qwen-image-2.1">Qwen-Image 2.1 (맥 로컬, 느림)</option>
+              <option value="qwen-image-2.1-fast">Qwen-Image 2.1 빠름 (맥 로컬, 4스텝)</option>
             </select>
           </label>
           <label class="field">
@@ -59,16 +60,17 @@
         </div>
 
         <div id="qwenOptions" class="row" hidden>
-          <label class="field">
-            <span class="label">네거티브 프롬프트(선택)</span>
-            <textarea name="negative" rows="2" disabled></textarea>
-          </label>
+          <div class="field">
+            <label class="label" for="negative">네거티브 프롬프트(선택)</label>
+            <textarea id="negative" name="negative" rows="2" disabled></textarea>
+            <p id="negativeHint" class="hint" data-qwen-model="qwen-image-2.1-fast" hidden>빠름(CFG&nbsp;1)에서는 거의&nbsp;반영되지&nbsp;않습니다.</p>
+          </div>
           <label class="field">
             <span class="label">시드(선택)</span>
             <input class="pickerSearch" name="seed" type="number" min="0" max="9007199254740991" step="1" disabled />
           </label>
         </div>
-        <p id="qwenHint" class="msg" hidden>맥 로컬에서 한 장씩 생성합니다. 512×512 약 7분, 1024×1024 약 28분이며 참조·크기에 따라 1시간 이상 걸릴 수 있습니다. auto는 1024×1024, 생성 제한은 2시간입니다. 진행 상태는 5초마다 갱신됩니다.</p>
+        <p id="qwenHint" class="msg" hidden>맥 로컬에서 한 장씩 생성합니다. <span data-qwen-model="qwen-image-2.1">512×512 약 7분, 1024×1024 약 28분이며 참조·크기에 따라 1시간 이상 걸릴 수 있습니다. </span>auto는 1024×1024, 생성 제한은 2시간입니다. 진행 상태는 5초마다 갱신됩니다.</p>
         <button id="submitBtn" type="submit">생성 시작</button>
         <p id="formMsg" class="msg" role="status"></p>
       </form>
