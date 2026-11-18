@@ -158,7 +158,7 @@ function renderCard(item) {
       <div class="line"><span class="badge">${statusLabel(item.status)}</span><span>${fmtMs(item.elapsedMs)}</span></div>
       <p class="prompt">${escapeHtml(item.promptPreview)}</p>
       ${errorLine}
-      ${qwenProgress(item) ? `<p class="sub" role="status">${escapeHtml(qwenProgress(item))}</p>` : ''}
+      ${qwenProgress(item) ? `<p class="sub qwenProgress" role="status">${escapeHtml(qwenProgress(item))}</p>` : ''}
       <p class="sub">${fmtDate(item.createdAt)} · ${escapeHtml(item.imageModel || '-')} · ${escapeHtml(item.model || '-')} · ${escapeHtml(item.size || 'auto')}</p>
       <div class="cardActions">${saved}${retry}${remove}</div>
     </div>
