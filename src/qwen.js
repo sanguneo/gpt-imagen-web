@@ -3,9 +3,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 export const QWEN_MODEL = 'qwen-image-2.1';
 export const QWEN_FAST_MODEL = 'qwen-image-2.1-fast';
+export const MOSS_MODEL = 'moss-image';
 /** Image model IDs served by the Mac Qwen service, in the order the web form lists them. */
-export const QWEN_MODELS = Object.freeze([QWEN_MODEL, QWEN_FAST_MODEL]);
+export const QWEN_MODELS = Object.freeze([QWEN_MODEL, QWEN_FAST_MODEL, MOSS_MODEL]);
 export const QWEN_TIMEOUT_MS = Math.max(120 * 60_000, Number(process.env.QWEN_JOB_TIMEOUT_MS) || 125 * 60_000);
+export const MOSS_TIMEOUT_MS = 35 * 60_000;
 
 export class QwenError extends Error {
   /** @param {string} message @param {number} [status] */
@@ -22,12 +24,12 @@ export function isQwenModel(model) {
   return QWEN_MODELS.some((id) => id === model);
 }
 
-/** @param {string | undefined} value */
-export function normalizeQwenSize(value) {
-  const size = value === 'auto' || !value ? '1024x1024' : value;
+/** @param {string | undefined} value @param {string} [model] */
+export function normalizeQwenSize(value, model = QWEN_MODEL) {
+  const size = value === 'auto' || !value ? (model === MOSS_MODEL ? '512x512' : '1024x1024') : value;
   if (!/^\d{3,4}x\d{3,4}$/.test(size) ||
       !size.split('x').map(Number).every((n) => n >= 256 && n <= 2048 && n % 32 === 0)) {
-    throw new QwenError('Qwen 크기는 각 변 256~2048, 32의 배수여야 합니다.', 400);
+    throw new QwenError('맥 로컬 모델 크기는 각 변 256~2048, 32의 배수여야 합니다.', 400);
   }
   return size;
 }
@@ -77,14 +79,16 @@ async function qwenRequest(route, options = {}) {
  * @param {{ images: string[], outputPath: string, onProgress: () => Promise<void> }} options
  */
 export async function generateQwenImage(entry, { images, outputPath, onProgress }) {
+  const moss = entry.imageModel === MOSS_MODEL;
   if (!entry.qwenJobId) {
     const form = new FormData();
     form.set('requestId', entry.id);
     form.set('prompt', entry.prompt);
-    form.set('size', normalizeQwenSize(entry.size));
+    form.set('size', normalizeQwenSize(entry.size, entry.imageModel));
     form.set('negative', entry.negative || '');
     // The persisted model decides the mode, so a resubmission after a restart stays on the same path.
     form.set('mode', entry.imageModel === QWEN_FAST_MODEL ? 'fast' : 'normal');
+    if (moss) form.set('model', MOSS_MODEL);
     if (entry.seed !== undefined) form.set('seed', String(entry.seed));
     for (const [index, image] of images.entries()) {
       const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/s.exec(image);
@@ -110,8 +114,8 @@ export async function generateQwenImage(entry, { images, outputPath, onProgress 
         entry.stage = typeof job.stage === 'string' ? job.stage : job.status;
         entry.queuePosition = Number.isInteger(job.queuePosition) ? job.queuePosition : null;
         await onProgress();
-        if (job.status === 'running' && Date.now() - Date.parse(entry.startedAt) > QWEN_TIMEOUT_MS) {
-          throw new QwenError('맥 Qwen 생성 시간이 2시간 제한을 초과했습니다.', 504);
+        if (job.status === 'running' && Date.now() - Date.parse(entry.startedAt) > (moss ? MOSS_TIMEOUT_MS : QWEN_TIMEOUT_MS)) {
+          throw new QwenError(moss ? '맥 MOSS 생성 시간이 제한을 초과했습니다.' : '맥 Qwen 생성 시간이 2시간 제한을 초과했습니다.', 504);
         }
         await delay(5000);
         break;
@@ -124,7 +128,7 @@ export async function generateQwenImage(entry, { images, outputPath, onProgress 
         await fs.writeFile(outputPath, image);
         entry.stage = '완료';
         entry.queuePosition = 0;
-        return { provider: 'qwen-local', responseId: entry.qwenJobId };
+        return { provider: moss ? 'moss-local' : 'qwen-local', responseId: entry.qwenJobId };
       }
       case 'error':
         throw new QwenError(typeof job.error === 'string' ? job.error : '맥 Qwen 이미지 생성이 실패했습니다.');

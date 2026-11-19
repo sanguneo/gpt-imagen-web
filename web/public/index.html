@@ -29,6 +29,7 @@
               <option value="gpt-image-2.5-sunburst">gpt-image-2.5 · sunburst</option>
               <option value="qwen-image-2.1">Qwen-Image 2.1 (맥 로컬, 느림)</option>
               <option value="qwen-image-2.1-fast">Qwen-Image 2.1 빠름 (맥 로컬, 4스텝)</option>
+              <option value="moss-image">MOSS-Image (무검열)</option>
             </select>
           </label>
           <label class="field">
@@ -71,6 +72,7 @@
           </label>
         </div>
         <p id="qwenHint" class="msg" hidden>맥 로컬에서 한 장씩 생성합니다. <span data-qwen-model="qwen-image-2.1">512×512 약 7분, 1024×1024 약 28분이며 참조·크기에 따라 1시간 이상 걸릴 수 있습니다. </span>auto는 1024×1024, 생성 제한은 2시간입니다. 진행 상태는 5초마다 갱신됩니다.</p>
+        <p id="mossHint" class="msg qwenProgress" hidden>MOSS-Image와 무검열 LoRA(0.8)로 생성합니다. 참고 이미지는 지원하지 않습니다. Qwen과 같은 맥 대기열에서 한 장씩 생성하며, auto는 512×512, 생성 제한은 30분입니다. 진행 상태는 5초마다 갱신됩니다.</p>
         <button id="submitBtn" type="submit">생성 시작</button>
         <p id="formMsg" class="msg" role="status"></p>
       </form>

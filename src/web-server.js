@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import express from 'express';
 import multer from 'multer';
-import { QWEN_MODEL, QWEN_MODELS, QWEN_TIMEOUT_MS, assertQwenConfigured, generateQwenImage, isQwenModel, normalizeQwenSize, parseQwenSeed } from './qwen.js';
+import { QWEN_MODEL, QWEN_MODELS, QWEN_TIMEOUT_MS, MOSS_MODEL, MOSS_TIMEOUT_MS, QwenError, assertQwenConfigured, generateQwenImage, isQwenModel, normalizeQwenSize, parseQwenSeed } from './qwen.js';
 
 import {
   CODEX_MODEL_CHOICES,
@@ -320,7 +320,7 @@ function isTimedOutEntry(entry) {
   if (!entry || !['queued', 'running'].includes(entry.status)) return false;
   if (isActiveJob(entry.id)) return false;
   const base = Date.parse(entry.startedAt || entry.createdAt || entry.updatedAt || '');
-  return Number.isFinite(base) && Date.now() - base > (isQwenModel(entry.imageModel) ? QWEN_TIMEOUT_MS : generationTimeoutMs);
+  return Number.isFinite(base) && Date.now() - base > (entry.imageModel === MOSS_MODEL ? MOSS_TIMEOUT_MS : isQwenModel(entry.imageModel) ? QWEN_TIMEOUT_MS : generationTimeoutMs);
 }
 async function expireTimedOutEntry(entry) {
   if (!isTimedOutEntry(entry)) return entry;
@@ -430,7 +430,8 @@ app.post('/api/generate', upload.array('images', maxImages), async (req, res) =>
     const requestedImageModel = resolveRequestedImageModel(body.imageModel);
     const isQwen = isQwenModel(requestedImageModel);
     if (isQwen) assertQwenConfigured();
-    const size = isQwen ? normalizeQwenSize(body.size) : resolveRequestedSize(body.size);
+    if (requestedImageModel === MOSS_MODEL && files.length) throw new QwenError('MOSS-Image는 참고 이미지 없이 텍스트로 생성합니다.', 400);
+    const size = isQwen ? normalizeQwenSize(body.size, requestedImageModel) : resolveRequestedSize(body.size);
     const requestedModel = isQwen ? null : resolveRequestedModel(body.model);
     const negative = isQwen ? cleanPrompt(body.negative) : '';
     const seed = isQwen ? parseQwenSeed(body.seed) : undefined;
@@ -461,7 +462,7 @@ app.post('/api/generate', upload.array('images', maxImages), async (req, res) =>
       errorCode: null,
       errorDetails: null,
       debugUrl: null,
-      provider: isQwen ? 'qwen-local' : providerName,
+      provider: requestedImageModel === MOSS_MODEL ? 'moss-local' : isQwen ? 'qwen-local' : providerName,
       responseId: null,
       revisedPrompt: null,
       responsePrompt: null,
@@ -531,7 +532,7 @@ app.post('/api/history/:id/retry', async (req, res) => {
       errorCode: null,
       errorDetails: null,
       debugUrl: null,
-      provider: isQwenModel(source.imageModel) ? 'qwen-local' : providerName,
+      provider: source.imageModel === MOSS_MODEL ? 'moss-local' : isQwenModel(source.imageModel) ? 'qwen-local' : providerName,
       responseId: null,
       revisedPrompt: null,
       responsePrompt: null,

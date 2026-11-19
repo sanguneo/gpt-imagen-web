@@ -87,6 +87,7 @@ async function startWeb(t, instance) {
 test('Qwen rejects unsupported dimensions and seeds at the input boundary', () => {
   assert.equal(normalizeQwenSize('auto'), '1024x1024');
   assert.equal(normalizeQwenSize('512x512'), '512x512');
+  assert.equal(normalizeQwenSize('auto', 'moss-image'), '512x512');
   for (const size of ['3840x2160', '513x512', '0x512', '512x512x512']) {
     assert.throws(() => normalizeQwenSize(size), { status: 400 });
   }
@@ -96,13 +97,14 @@ test('Qwen rejects unsupported dimensions and seeds at the input boundary', () =
   assert.equal(parseQwenSeed('0'), 0);
 });
 
-for (const { imageModel, mode } of [
-  { imageModel: 'qwen-image-2.1', mode: 'normal' },
-  { imageModel: 'qwen-image-2.1-fast', mode: 'fast' }
+for (const { imageModel, mode, references } of [
+  { imageModel: 'qwen-image-2.1', mode: 'normal', references: true },
+  { imageModel: 'qwen-image-2.1-fast', mode: 'fast', references: true },
+  { imageModel: 'moss-image', mode: 'normal', references: false }
 ]) {
-  test(`web ${imageModel} job submits ${mode} mode with its references and saves the remote PNG in history`, async (t) => {
+  test(`web ${imageModel} job submits ${mode} mode and saves the remote PNG with its model identity`, async (t) => {
     const { submissions, historyDir } = await startFakeMac(t);
-    const origin = await startWeb(t, `create-${mode}`);
+    const origin = await startWeb(t, `create-${imageModel}`);
     const completed = completedHistory(historyDir, t);
     const form = new FormData();
     form.set('prompt', 'a red teapot');
@@ -110,22 +112,24 @@ for (const { imageModel, mode } of [
     form.set('size', '512x512');
     form.set('negative', 'text, blurry');
     form.set('seed', '42');
-    form.append('images', new Blob([PNG], { type: 'image/png' }), 'ref.png');
+    if (references) form.append('images', new Blob([PNG], { type: 'image/png' }), 'ref.png');
     const response = await fetch(`${origin}/api/generate`, { method: 'POST', body: form });
     assert.equal(response.status, 202);
     const { entry: accepted } = await response.json();
     const done = await completed;
     assert.equal(done.status, 'done');
     assert.equal(done.id, accepted.id);
-    assert.equal(done.provider, 'qwen-local');
+    assert.equal(done.provider, imageModel === 'moss-image' ? 'moss-local' : 'qwen-local');
     assert.equal(submissions.length, 1);
     const [submitted] = submissions;
     assert.equal(submitted.get('requestId'), accepted.id);
     assert.equal(submitted.get('mode'), mode);
+    assert.equal(submitted.get('model'), imageModel === 'moss-image' ? 'moss-image' : null);
     assert.equal(submitted.get('negative'), 'text, blurry');
     assert.equal(submitted.get('seed'), '42');
     assert.equal(submitted.get('size'), '512x512');
-    assert.deepEqual(Buffer.from(await submitted.get('images').arrayBuffer()), PNG);
+    if (references) assert.deepEqual(Buffer.from(await submitted.get('images').arrayBuffer()), PNG);
+    else assert.equal(submitted.get('images'), null);
     assert.deepEqual(Buffer.from(await (await fetch(origin + done.imageUrl)).arrayBuffer()), PNG);
     const publicHistory = await (await fetch(`${origin}/api/history/${done.id}`)).json();
     assert.equal(publicHistory.entry.imageModel, imageModel);
@@ -157,20 +161,37 @@ test('resumed Qwen completion retains the Mac start time and full elapsed durati
   assert.equal(submissions.length, 0);
 });
 
-test('fast Qwen job interrupted before its remote ID was saved is resubmitted once in fast mode', async (t) => {
+for (const imageModel of ['qwen-image-2.1-fast', 'moss-image']) {
+test(`${imageModel} interrupted before its remote ID was saved resumes with the same model`, async (t) => {
   const id = '0123456789abcdef0123';
   const createdAt = new Date().toISOString();
   const { submissions, historyDir } = await startFakeMac(t);
   await fs.writeFile(path.join(historyDir, `${id}.json`), JSON.stringify({
-    id, imageModel: 'qwen-image-2.1-fast', model: null,
+    id, imageModel, model: null,
     status: 'queued', prompt: 'a red teapot', size: '512x512',
     createdAt, updatedAt: createdAt, inputImages: []
   }));
   const completed = completedHistory(historyDir, t);
-  const origin = await startWeb(t, 'recover-fast');
+  const origin = await startWeb(t, `recover-${imageModel}`);
   await completed;
   const { entry } = await (await fetch(`${origin}/api/history/${id}`)).json();
   assert.equal(entry.status, 'done');
-  assert.equal(entry.imageModel, 'qwen-image-2.1-fast');
-  assert.deepEqual(submissions.map((form) => [form.get('requestId'), form.get('mode')]), [[id, 'fast']]);
+  assert.equal(entry.imageModel, imageModel);
+  assert.deepEqual(submissions.map((form) => [form.get('requestId'), form.get('mode'), form.get('model')]),
+    [[id, imageModel === 'moss-image' ? 'normal' : 'fast', imageModel === 'moss-image' ? 'moss-image' : null]]);
+});
+}
+
+test('MOSS reference uploads are rejected before a remote job is submitted', async (t) => {
+  const { submissions } = await startFakeMac(t);
+  const origin = await startWeb(t, 'moss-references');
+  const form = new FormData();
+  form.set('prompt', 'a fictional adult portrait');
+  form.set('imageModel', 'moss-image');
+  form.set('size', '512x512');
+  form.append('images', new Blob([PNG], { type: 'image/png' }), 'ref.png');
+  const response = await fetch(`${origin}/api/generate`, { method: 'POST', body: form });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /MOSS.*참고/);
+  assert.equal(submissions.length, 0);
 });
