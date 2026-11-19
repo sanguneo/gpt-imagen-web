@@ -1,25 +1,16 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
-import { mkdir, open, readFile, readdir, realpath, rename, stat } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { isIP } from "node:net";
 import { Database } from "bun:sqlite";
+import { generationSupervisor } from "./generation-process.mjs";
+import { MAX_BODY, PNG, parseJob, ServiceError } from "./service-input.mjs";
 
-const MAX_REF = 12 * 1024 * 1024;
-const MAX_REFS = 64 * 1024 * 1024;
-const MAX_BODY = MAX_REFS + 1024 * 1024;
-const PNG = Buffer.from("89504e470d0a1a0a", "hex");
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const now = () => new Date().toISOString();
 const digest = (text) => createHash("sha256").update(text).digest();
-
-class ServiceError extends Error {
-  constructor(message, status = 500) {
-    super(message);
-    this.status = status;
-  }
-}
 
 function tailnetHost(host) {
   if (isIP(host) === 4) {
@@ -56,67 +47,6 @@ function signalGroup(pid, signal) {
   }
 }
 
-function imageType(bytes) {
-  if (bytes.subarray(0, 8).equals(PNG)) return "image/png";
-  if (["GIF87a", "GIF89a"].includes(bytes.toString("ascii", 0, 6))) return "image/gif";
-  if (bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return "image/jpeg";
-  if (bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") return "image/webp";
-  return null;
-}
-
-async function parseJob(request) {
-  let fields;
-  let images = [];
-  const type = request.headers.get("content-type") ?? "";
-  if (type.startsWith("multipart/form-data")) {
-    const form = await request.formData();
-    for (const key of form.keys()) {
-      if (!["prompt", "negative", "size", "seed", "images", "requestId", "mode"].includes(key)) throw new ServiceError("Unknown field", 400);
-    }
-    fields = {};
-    for (const key of ["prompt", "negative", "size", "seed", "requestId", "mode"]) {
-      const values = form.getAll(key);
-      if (values.length > 1 || values.some((value) => typeof value !== "string")) throw new ServiceError(`Invalid ${key}`, 400);
-      if (values.length) fields[key] = values[0];
-    }
-    images = form.getAll("images");
-  } else if (type.startsWith("application/json")) {
-    fields = await request.json();
-    if (!fields || typeof fields !== "object" || Array.isArray(fields)
-      || Object.keys(fields).some((key) => !["prompt", "negative", "size", "seed", "requestId", "mode"].includes(key))) {
-      throw new ServiceError("Expected prompt, negative, size and optional seed or mode; JSON does not accept references", 400);
-    }
-  } else {
-    throw new ServiceError("Use multipart/form-data or application/json", 415);
-  }
-  if (typeof fields.prompt !== "string" || !fields.prompt.trim() || fields.prompt.length > 60000) throw new ServiceError("Invalid prompt (1..60000 characters)", 400);
-  if (fields.requestId !== undefined && (typeof fields.requestId !== "string" || !/^[0-9a-f]{20}$/.test(fields.requestId))) throw new ServiceError("Invalid requestId (20 lowercase hex characters)", 400);
-  if (fields.mode !== undefined && fields.mode !== "normal" && fields.mode !== "fast") throw new ServiceError("Invalid mode (normal or fast)", 400);
-  if (fields.negative !== undefined && (typeof fields.negative !== "string" || fields.negative.length > 60000)) throw new ServiceError("Invalid negative", 400);
-  if (typeof fields.size !== "string" || !/^\d{3,4}x\d{3,4}$/.test(fields.size)
-    || !fields.size.split("x").map(Number).every((n) => n >= 256 && n <= 2048 && n % 32 === 0)) throw new ServiceError("Invalid size", 400);
-  let seed = null;
-  if (fields.seed !== undefined) {
-    if ((typeof fields.seed !== "number" && typeof fields.seed !== "string")
-      || (typeof fields.seed === "string" && !/^\d+$/.test(fields.seed))) throw new ServiceError("Invalid seed", 400);
-    seed = Number(fields.seed);
-    if (!Number.isSafeInteger(seed) || seed < 0) throw new ServiceError("Invalid seed", 400);
-  }
-  if (images.length > 16) throw new ServiceError("At most 16 images", 400);
-  let total = 0;
-  const refs = [];
-  for (const image of images) {
-    if (!(image instanceof File) || image.size === 0 || image.size > MAX_REF) throw new ServiceError("Each image must be 1..12 MiB", 400);
-    total += image.size;
-    if (total > MAX_REFS) throw new ServiceError("References exceed 64 MiB", 400);
-    const bytes = Buffer.from(await image.arrayBuffer());
-    const mime = imageType(bytes);
-    if (!mime || mime !== image.type) throw new ServiceError("References must be PNG, JPEG, WebP or GIF with matching MIME type", 400);
-    refs.push({ bytes, extension: { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[mime] });
-  }
-  return { prompt: fields.prompt, negative: fields.negative ?? "", size: fields.size, seed, refs, requestId: fields.requestId ?? null, mode: fields.mode ?? "normal" };
-}
-
 async function main() {
   const host = process.env.QWEN_HOST;
   if (!tailnetHost(host ?? "")) throw new ServiceError("QWEN_HOST must be a literal tailnet address (100.64.0.0/10 or fd7a:115c:a1e0::/48)");
@@ -126,6 +56,8 @@ async function main() {
   const jobsDir = process.env.QWEN_JOBS_DIR ?? join(root, "jobs");
   const generator = process.env.QWEN_GENERATOR ?? join(import.meta.dir, "gen.sh");
   if (!isAbsolute(generator)) throw new ServiceError("QWEN_GENERATOR must be an absolute executable path");
+  const mossGenerator = process.env.MOSS_GENERATOR ?? join(import.meta.dir, "moss.sh");
+  if (!isAbsolute(mossGenerator)) throw new ServiceError("MOSS_GENERATOR must be an absolute executable path");
   const tokenFile = process.env.QWEN_TOKEN_FILE ?? join(root, "service.token");
   const tokenStat = await stat(tokenFile);
   if (!tokenStat.isFile() || (tokenStat.mode & 0o077) !== 0) throw new ServiceError("Token file must be private (mode 600)");
@@ -149,11 +81,15 @@ async function main() {
     id: job.id, status: job.status, stage: job.stage,
     queuePosition: job.status === "queued" ? queue.indexOf(job.id) + 1 : 0,
     mode: job.input?.mode ?? "normal",
+    model: job.input?.model ?? "qwen-image",
     createdAt: job.createdAt, startedAt: job.startedAt, finishedAt: job.finishedAt, error: job.error,
   });
 
   async function run(job) {
     const directory = join(jobsDir, job.id);
+    const moss = job.input.model === "moss-image";
+    const executable = moss ? mossGenerator : generator;
+    const scratch = moss ? join(directory, "moss-run") : "";
     job.status = "running";
     job.stage = "generating";
     job.startedAt = now();
@@ -167,28 +103,12 @@ async function main() {
     const stdout = openSync(join(directory, "stdout.log"), "w", 0o600);
     const stderr = openSync(join(directory, "stderr.log"), "w", 0o600);
     try {
+      if (moss) await mkdir(scratch, { mode: 0o700 });
       // Start gated: durable PID is committed before generation can begin.
       // The supervisor also kills its entire group if the service disappears.
-      const supervisor = `
-        use POSIX qw(WNOHANG);
-        use Fcntl qw(:flock);
-        my $owner = getppid(); my $pid;
-        $SIG{ALRM} = sub { kill 'KILL', -$$; };
-        alarm 7800;
-        my $go = <STDIN>; exit 1 unless defined $go;
-        open(my $guard, ">>", shift @ARGV) or die "generation lock open failed";
-        flock($guard, LOCK_EX) or die "generation lock failed";
-        if (getppid() != $owner) { kill 'KILL', -$$; }
-        $pid = fork(); die "fork failed" unless defined $pid;
-        if (!$pid) { exec @ARGV; die "exec failed"; }
-        while (1) {
-          my $done = waitpid($pid, WNOHANG);
-          if ($done == $pid) { my $code = $?; exit(($code & 127) ? 128 + ($code & 127) : $code >> 8); }
-          if (getppid() != $owner) { kill 'KILL', -$$; }
-          select undef, undef, undef, 0.2;
-        }`;
-      active = Bun.spawn(["/usr/bin/perl", "-e", supervisor, join(jobsDir, "generation.lock"), "/usr/bin/caffeinate", "-i", generator, ...args], {
-        env: process.env, cwd: dirname(generator), detached: true,
+      active = Bun.spawn(["/usr/bin/perl", "-e", generationSupervisor, moss ? "1800" : "7800", scratch, join(jobsDir, "generation.lock"), "/usr/bin/caffeinate", "-i", executable, ...args], {
+        env: moss ? { ...process.env, TMPDIR: scratch, NODE_COMPILE_CACHE: join(scratch, "node"), BUN_RUNTIME_TRANSPILER_CACHE_PATH: join(scratch, "bun") } : process.env,
+        cwd: dirname(executable), detached: true,
         stdin: "pipe", stdout, stderr,
       });
       job.pid = active.pid;
@@ -204,7 +124,7 @@ async function main() {
       if ((await stat(outputLog)).size > 16384) throw new ServiceError("Unexpected generator stdout");
       const outputText = (await readFile(outputLog, "utf8")).trim();
       if (!isAbsolute(outputText) || outputText.includes("\n") || outputText.includes("\r")) throw new ServiceError("Generator must emit exactly one absolute output path");
-      const outputRoot = await realpath(join(dirname(generator), "output"));
+      const outputRoot = await realpath(join(dirname(executable), "output"));
       const output = await realpath(outputText);
       if (!output.startsWith(outputRoot + sep) || !(await stat(output)).isFile()) throw new ServiceError("Generator output escaped output directory");
       const bytes = await readFile(output);
@@ -220,6 +140,7 @@ async function main() {
       active = null;
       closeSync(stdout);
       closeSync(stderr);
+      if (moss) await rm(scratch, { recursive: true, force: true });
     }
   }
 
