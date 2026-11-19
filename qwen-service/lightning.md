@@ -1,4 +1,4 @@
-# Qwen-Image 2.1 Lightning generator
+# Qwen-Image 2.1 Lightning v2-RL generator
 
 The adjacent `gen.mjs`, `gen.sh`, `lightning.mjs` and `workflow_api.json` are
 source snapshots of the Mac installation at `~/qwen-image/`. Keep them identical
@@ -16,36 +16,48 @@ existing reference-size behavior. Add `--fast` for the fixed 4-step preset:
 `--fast` cannot combine with `--steps`, `--cfg`, `--sampler` or `--scheduler`.
 Negative text is accepted but has no classifier-free guidance effect at CFG 1.
 The normal workflow JSON is unchanged. Fast mode inserts `LoraLoaderModelOnly`
-after `UnetLoaderGGUF`, disables the prefix KV cache as in the model card, and
+after `UnetLoaderGGUF`, enables the lossless prefix KV cache (`auto` device), and
 uses native `SamplerCustom`, `KSamplerSelect` (Euler) and `ManualSigmas`.
 ComfyUI-GGUF applies quantized LoRA patches during dequantization; no base model
 conversion or destructive weight merge is needed.
 
 Official source:
-`https://huggingface.co/lightx2v/Qwen-Image-2.1-Lightning`
+`https://huggingface.co/lightx2v/Qwen-Image-2.1-Lightning-v2-RL`
 
-Pinned revision: `6b0a1176327c01522a44276c5da67331a025b6fc`.
-Download `pytorch_lora_weights.safetensors` from that revision and save it as
-`~/qwen-image/models/loras/qwen-image-2.1-lightning-4step.safetensors`.
-Size: 67,144,280 bytes. The adjacent SHA256SUMS records the official LFS SHA256.
+Pinned revision: `682b2529ffb5ae9ba39ceb81a31ce99e602da2ee`.
+Download only `qwen_image_21_lightning_v2_rl_4steps_lora_rank64.safetensors`
+from that revision and keep that filename in `~/qwen-image/models/loras/`.
+Size: 688,056,648 bytes. The adjacent SHA256SUMS records the official LFS SHA256.
+The LoRA metadata identifies it as a rank-64 reconstruction of the RL transformer.
+The full transformer is not needed for this GGUF/LoRA installation.
 This is the Qwen-Image **2.1** adapter; older Qwen-Image Lightning adapters are
 not interchangeable.
 
-The official training schedule uses `[1, 0.75, 0.5, 0.25]`, then zero, with
-dynamic exponential shifting and no terminal stretching. The token count is
-`width * height / 256`; mu interpolates linearly from 0.5 at 256 tokens to 0.9 at
-8192 tokens. Each nonzero sigma becomes `exp(mu)/(exp(mu)+(1/sigma-1))`.
-For reference-sized output, the generator uses the first image's EXIF-aware
-dimensions and the same resize/rounding as `TextEncodeQwenImage21`.
+The pinned `inference_config.json` uses `[1, 0.95418, 0.89508, 0.704534]`,
+then terminal zero, with Euler sampling and CFG 1. These release sigmas are
+already shifted. Do not apply dynamic shifting or terminal stretching again.
+The scheduler has 1000 training timesteps, shift 1, and no stochastic, inverted,
+beta, exponential or Karras sigma transformation. `ManualSigmas` supplies the
+release schedule directly, independent of image dimensions.
+Reference-sized output still uses the first reference latent from
+`TextEncodeQwenImage21`; a separate image-size probe is no longer needed.
 MPS/GGUF numerics are not promised to match the BF16 CUDA examples bit for bit.
+
+## Rollback from v2-RL
+
+Before replacing v1, preserve its 67,144,280-byte LoRA under
+`models/loras/qwen-image-2.1-lightning-v1-4step.safetensors`.
+Its original LFS SHA256 remains in SHA256SUMS. Keep the old `gen.mjs` and
+`lightning.mjs` together as a rollback pair. To roll back, restore that pair
+and restore the LoRA filename expected by the v1 loader:
+`qwen-image-2.1-lightning-4step.safetensors`. Changing only the LoRA while
+retaining the v2 sigma schedule does not restore v1 behavior.
 
 ## License verification
 
-The pinned adapter repository and model card do **not** declare a separate
-license or contain a LICENSE file. Do not describe this adapter as Apache/MIT
-based on the LightX2V software license.
-
-Its declared base model `Qwen/Qwen-Image-2.1` supplies the
+The pinned v2-RL model card declares `license_name: qwen-research` and links
+to the base model license. Do not describe the weights as Apache/MIT based
+on the LightX2V software license. `Qwen/Qwen-Image-2.1` supplies the
 **Qwen RESEARCH LICENSE AGREEMENT**, dated September 20, 2026:
 `https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE`.
 Section 2 limits the grant to noncommercial research/evaluation; commercial use

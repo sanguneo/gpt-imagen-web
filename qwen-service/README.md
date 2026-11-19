@@ -4,7 +4,7 @@ The adjacent `service.mjs` is the source snapshot for review and packaging. It m
 remain byte-identical to `~/qwen-image/service.mjs`. Installation, launchd, token
 creation, OCI configuration and real generation are the parent's responsibility.
 
-The generator source snapshots and pinned 2.1 Lightning installation, schedule
+The generator source snapshots and pinned 2.1 Lightning v2-RL installation, schedule
 and license notes are documented in [lightning.md](./lightning.md).
 
 Run the service with Bun on macOS. Configure:

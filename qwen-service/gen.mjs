@@ -13,7 +13,7 @@ const usage = `Usage: gen.sh "<prompt>" [size | WxH] [options]
   --cfg X           CFG scale (default 5)
   --sampler NAME    KSampler sampler (default er_sde)
   --scheduler NAME  KSampler scheduler (default simple)
-  --fast            4-step Qwen-Image-2.1 Lightning, CFG 1, Euler with training sigmas
+  --fast            4-step Qwen-Image-2.1 Lightning v2-RL, CFG 1, Euler with release sigmas
   --batch N         images per run, 1–4 (default 1)
   --ref FILE        reference image (repeatable, up to 16); without a size the output follows the first one`;
 
@@ -53,7 +53,7 @@ if (fast && ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[k
 args.values.steps ??= fast ? "4" : "35";
 args.values.cfg ??= fast ? "1" : "5";
 args.values.sampler ??= fast ? "euler" : "er_sde";
-args.values.scheduler ??= fast ? "lightning (dynamic exponential, no terminal stretching)" : "simple";
+args.values.scheduler ??= fast ? "lightning v2-RL (fixed release sigmas, no terminal stretching)" : "simple";
 const [prompt, sizeArg, ...extra] = args.positionals;
 const sizeText = sizeArg ?? "1024";
 const refs = args.values.ref;
@@ -131,21 +131,7 @@ async function queue() {
   Object.assign(graph["458"].inputs, {
     seed, steps, cfg, sampler_name: args.values.sampler, scheduler: args.values.scheduler,
   });
-  if (fast) {
-    let samplingWidth = width, samplingHeight = height;
-    if (refSized) {
-      // Match TextEncodeQwenImage21's EXIF-aware first-reference resize.
-      const probe = Bun.spawn([
-        "/usr/bin/perl", "-e", "alarm 10; exec @ARGV", join(root, ".venv/bin/python"), "-c",
-        "import sys,json,math; from PIL import Image,ImageOps; im=ImageOps.exif_transpose(Image.open(sys.argv[1])); r=im.width/im.height; s=int(sys.argv[2]); print(json.dumps([max(32,round(math.sqrt(s*s*r)/32)*32),max(32,round(math.sqrt(s*s/r)/32)*32)]))",
-        refs[0], String(graph["452"].inputs.resolution),
-      ], { env: process.env, stdin: "ignore", stdout: "pipe", stderr: "inherit" });
-      const dimensions = await new Response(probe.stdout).text();
-      if (await probe.exited !== 0) throw new Error("Cannot read first reference dimensions.");
-      [samplingWidth, samplingHeight] = JSON.parse(dimensions);
-    }
-    applyLightning(graph, { width: samplingWidth, height: samplingHeight, seed });
-  }
+  if (fast) applyLightning(graph, { seed });
   graph["485"].inputs.filename_prefix = prefix;
   console.error(`Seed: ${seed}, steps ${steps}, cfg ${cfg}, ${args.values.sampler}/${args.values.scheduler}, ${refSized ? "size of ref 1" : `${width}x${height}`} x${batch}, refs ${refs.length}`);
   const started = performance.now();
