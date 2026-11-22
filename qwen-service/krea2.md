@@ -8,6 +8,12 @@ The Verite LoRA has strength 1. If none of its three triggers is present
 (case insensitive), the generator prepends `Candid amateur photo, `.
 The other recognized triggers are `Amateur phone photo` and `Candid flash photo`.
 Reference images and sampler overrides are rejected for this fixed preset.
+Trigger recognition requires complete phrases: `photographer` and `photography`
+do not count as the trigger word `photo`.
+
+Run `bun test --timeout 20000 ./qwen-service/krea2-check.mjs` from the repository
+root to check the generated ComfyUI prompt at the real CLI/HTTP boundary.
+This suite owns port 8188 briefly and must run without a real ComfyUI generation.
 
 ## Pinned files
 

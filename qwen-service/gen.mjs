@@ -129,7 +129,7 @@ async function queue() {
   }
   if (refs.length) graph["452"].inputs.vae = ["454", 0];
   if (krea) {
-    graph["452"].inputs.text = /candid amateur photo|amateur phone photo|candid flash photo/i.test(prompt)
+    graph["452"].inputs.text = /\b(?:candid amateur photo|amateur phone photo|candid flash photo)\b/i.test(prompt)
       ? prompt : `Candid amateur photo, ${prompt}`;
     graph["455"].inputs.text = args.values.neg;
     // Match the Raw reference's mu endpoints: 256px -> .5, 1280px -> 1.15.
