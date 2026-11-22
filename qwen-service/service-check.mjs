@@ -51,7 +51,8 @@ import { watch } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 const root = import.meta.dir;
-const {positionals:[prompt,size], values} = parseArgs({allowPositionals:true,options:{neg:{type:"string"},seed:{type:"string"},ref:{type:"string",multiple:true,default:[]},fast:{type:"boolean"}}});
+const {positionals:[prompt,size], values} = parseArgs({allowPositionals:true,options:{neg:{type:"string"},seed:{type:"string"},ref:{type:"string",multiple:true,default:[]},fast:{type:"boolean"},model:{type:"string"}}});
+if (prompt === "krea test" && values.model !== "krea2") process.exit(9);
 const options = ["--neg",values.neg,...(values.seed === undefined ? [] : ["--seed",values.seed]),...values.ref.flatMap(ref => ["--ref",ref]),...(values.fast ? ["--fast"] : [])];
 await mkdir(join(root, "exclusive"));
 await appendFile(join(root, "calls"), JSON.stringify({prompt, size, options, pid:process.pid})+"\\n");
@@ -121,6 +122,40 @@ afterEach(async () => {
     }
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test.each(["json", "multipart"])("Krea mode generates and persists through %s", async (transport) => {
+  const { root, start } = await fixture();
+  const app = await start();
+  let id;
+  if (transport === "json") {
+    id = await app.submit({ prompt: "krea test", mode: "krea2" });
+  } else {
+    const form = new FormData();
+    form.set("prompt", "krea test");
+    form.set("size", "512x512");
+    form.set("mode", "krea2");
+    const response = await app.http("/jobs", { method: "POST", body: form });
+    expect(response.status).toBe(202);
+    id = (await response.json()).id;
+  }
+  expect((await app.state(id, "done")).mode).toBe("krea2");
+  expect(Buffer.from(await (await app.http(`/jobs/${id}/image`)).arrayBuffer())).toEqual(png);
+  expect(JSON.parse(await readFile(join(root, "jobs", id, "job.json"), "utf8")).input.mode).toBe("krea2");
+});
+
+test("Krea references are rejected before generation", async () => {
+  const { root, start } = await fixture();
+  const app = await start();
+  const form = new FormData();
+  form.set("prompt", "krea test");
+  form.set("size", "512x512");
+  form.set("mode", "krea2");
+  form.append("images", new Blob([png], { type: "image/png" }), "ref.png");
+  const response = await app.http("/jobs", { method: "POST", body: form });
+  expect(response.status).toBe(400);
+  expect((await response.json()).error).toContain("Krea");
+  expect(await Bun.file(join(root, "calls")).exists()).toBe(false);
 });
 
 test("all routes require Bearer auth before routing or parsing", async () => {

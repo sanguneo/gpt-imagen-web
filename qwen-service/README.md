@@ -23,10 +23,12 @@ SHA-256 digests and uses timing-safe equality. No CORS is enabled.
 
 `POST /jobs` accepts multipart fields `prompt`, `negative`, `size`, `seed`,
 `requestId`, `mode`, and repeatable file field `images` (0..16). JSON accepts the same
-scalar fields and no references. `mode` is optional, exactly `normal` or `fast`;
+scalar fields and no references. `mode` is optional, exactly `normal`, `fast` or `krea2`;
 omitted means `normal`. Any other value, type or duplicate field returns 400. The
 mode is stored in the job input, and the generator receives `--fast` (after any
-`--ref` options, before `--`) only for `fast`. Durable jobs written before this
+`--ref` options, before `--`) only for `fast`. Krea jobs receive `--model krea2`
+and reject references with 400. See [krea2.md](./krea2.md) for weights and settings.
+Durable jobs written before this
 field existed have no mode and run as `normal`. `prompt` is nonempty, up to 60000 characters;
 `negative` defaults to empty and has the same cap. `size` is required `WxH`, both
 sides 256..2048, multiples of 32. `seed` is optional, a nonnegative safe integer

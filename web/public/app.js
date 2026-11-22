@@ -15,7 +15,8 @@ let lookedUpIpIds = new Set();
 let isLoadingHistory = false;
 let hasActiveQwen = false;
 let qwenDetailId = null;
-const QWEN_MODELS = ['qwen-image-2.1', 'qwen-image-2.1-fast'];
+const KREA_MODEL = 'krea2';
+const QWEN_MODELS = ['qwen-image-2.1', 'qwen-image-2.1-fast', KREA_MODEL];
 const refreshSettings = loadRefreshSettings();
 const IPMPT_API = '/api/ipmpt';
 const IPMPT_MODEL = 'OpenAI - Codex';
@@ -59,7 +60,11 @@ function qwenProgress(item) {
   return `${stage}${queue} · ${item.estimatedTime || '생성 제한 2시간'}`;
 }
 function updateModelControls() {
-  const qwen = isQwenModel(form.imageModel.value);
+  const imageModel = form.imageModel.value;
+  const qwen = isQwenModel(imageModel);
+  const textOnly = imageModel === KREA_MODEL;
+  form.images.disabled = textOnly;
+  form.images.closest('.field').hidden = textOnly;
   form.model.disabled = qwen;
   form.model.closest('.field').hidden = qwen;
   form.imageModel.closest('.field').classList.toggle('qwenModelField', qwen);
@@ -67,7 +72,7 @@ function updateModelControls() {
   document.querySelector('#qwenHint').hidden = !qwen;
   form.negative.disabled = !qwen;
   form.seed.disabled = !qwen;
-  for (const note of document.querySelectorAll('[data-qwen-model]')) note.hidden = note.dataset.qwenModel !== form.imageModel.value;
+  for (const note of document.querySelectorAll('[data-qwen-model]')) note.hidden = note.dataset.qwenModel !== imageModel;
   // A hidden description is still announced, so the field only references the hint while it shows.
   const negativeHint = document.querySelector('#negativeHint');
   if (negativeHint.hidden) form.negative.removeAttribute('aria-describedby');
@@ -244,11 +249,16 @@ async function ipmptApi(path, options) {
   return data;
 }
 
+function ipmptModelLabel(imageModel) {
+  if (imageModel === KREA_MODEL) return 'Krea 2 실사';
+  return isQwenModel(imageModel) ? 'Qwen-Image 2.1' : IPMPT_MODEL;
+}
+
 function ipmptPayload(entry) {
   return {
     promptText: entry.prompt,
     imageUrl: entry.imageUrl,
-    generationModel: isQwenModel(entry.imageModel) ? 'Qwen-Image 2.1' : IPMPT_MODEL,
+    generationModel: ipmptModelLabel(entry.imageModel),
     source: IPMPT_SOURCE,
     sourceSite: 'imagen',
     sourceId: entry.id,
@@ -260,7 +270,7 @@ function renderIpmptInline(entry, isSaved) {
   if (entry.status !== 'done' || !entry.imageUrl) return '';
   return `<section class="ipmptPanel">
     <h3>${isSaved ? 'IPMPT 저장됨' : 'IPMPT 저장'}</h3>
-    <p class="sub">생성모델: ${isQwenModel(entry.imageModel) ? 'Qwen-Image 2.1' : IPMPT_MODEL} · 출처: ${IPMPT_SOURCE}</p>
+    <p class="sub">생성모델: ${ipmptModelLabel(entry.imageModel)} · 출처: ${IPMPT_SOURCE}</p>
     <div class="detailActions">
       <button class="copyBtn" type="button" data-ipmpt-new="true">새 프롬프트 이미지로 저장</button>
       <button class="copyBtn" type="button" data-ipmpt-add="true">기존 프롬프트 이미지에 추가</button>

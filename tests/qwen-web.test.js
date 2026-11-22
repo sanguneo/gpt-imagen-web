@@ -96,11 +96,12 @@ test('Qwen rejects unsupported dimensions and seeds at the input boundary', () =
   assert.equal(parseQwenSeed('0'), 0);
 });
 
-for (const { imageModel, mode } of [
-  { imageModel: 'qwen-image-2.1', mode: 'normal' },
-  { imageModel: 'qwen-image-2.1-fast', mode: 'fast' }
+for (const { imageModel, mode, withReference } of [
+  { imageModel: 'qwen-image-2.1', mode: 'normal', withReference: true },
+  { imageModel: 'qwen-image-2.1-fast', mode: 'fast', withReference: true },
+  { imageModel: 'krea2', mode: 'krea2', withReference: false }
 ]) {
-  test(`web ${imageModel} job submits ${mode} mode with its references and saves the remote PNG in history`, async (t) => {
+  test(`web ${imageModel} job submits ${mode} mode ${withReference ? 'with references' : 'without references'} and saves the remote PNG in history`, async (t) => {
     const { submissions, historyDir } = await startFakeMac(t);
     const origin = await startWeb(t, `create-${mode}`);
     const completed = completedHistory(historyDir, t);
@@ -110,9 +111,9 @@ for (const { imageModel, mode } of [
     form.set('size', '512x512');
     form.set('negative', 'text, blurry');
     form.set('seed', '42');
-    form.append('images', new Blob([PNG], { type: 'image/png' }), 'ref.png');
+    if (withReference) form.append('images', new Blob([PNG], { type: 'image/png' }), 'ref.png');
     const response = await fetch(`${origin}/api/generate`, { method: 'POST', body: form });
-    assert.equal(response.status, 202);
+    assert.equal(response.status, 202, `Expected the web server to accept ${imageModel}`);
     const { entry: accepted } = await response.json();
     const done = await completed;
     assert.equal(done.status, 'done');
@@ -125,7 +126,8 @@ for (const { imageModel, mode } of [
     assert.equal(submitted.get('negative'), 'text, blurry');
     assert.equal(submitted.get('seed'), '42');
     assert.equal(submitted.get('size'), '512x512');
-    assert.deepEqual(Buffer.from(await submitted.get('images').arrayBuffer()), PNG);
+    const references = await Promise.all(submitted.getAll('images').map(async (file) => Buffer.from(await file.arrayBuffer())));
+    assert.deepEqual(references, withReference ? [PNG] : []);
     assert.deepEqual(Buffer.from(await (await fetch(origin + done.imageUrl)).arrayBuffer()), PNG);
     const publicHistory = await (await fetch(`${origin}/api/history/${done.id}`)).json();
     assert.equal(publicHistory.entry.imageModel, imageModel);
@@ -134,8 +136,27 @@ for (const { imageModel, mode } of [
     assert.ok(health.imageModels.includes('gpt-image-2.6-flare'));
     assert.ok(health.imageModels.includes('gpt-image-2.5-sunburst'));
     assert.ok(health.imageModels.includes('qwen-image-2.1'));
+    assert.ok(health.imageModels.includes(imageModel));
   });
 }
+
+test('web rejects a Krea 2 job with a reference before writing history or submitting to the Mac', async (t) => {
+  const { submissions, historyDir } = await startFakeMac(t);
+  const origin = await startWeb(t, 'reject-krea2-reference');
+  const form = new FormData();
+  form.set('prompt', 'a red teapot');
+  form.set('imageModel', 'krea2');
+  form.append('images', new Blob([PNG], { type: 'image/png' }), 'ref.png');
+
+  const response = await fetch(`${origin}/api/generate`, { method: 'POST', body: form });
+
+  assert.equal(response.status, 400);
+  const result = await response.json();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Krea 2.*참고 이미지/);
+  assert.deepEqual(await fs.readdir(historyDir), []);
+  assert.deepEqual(submissions, []);
+});
 
 test('resumed Qwen completion retains the Mac start time and full elapsed duration', async (t) => {
   const id = '12345678901234567890';

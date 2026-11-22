@@ -28,6 +28,7 @@ export function generateQwenImage(entry: QwenEntry, { images, outputPath, onProg
 }>;
 export const QWEN_MODEL: "qwen-image-2.1";
 export const QWEN_FAST_MODEL: "qwen-image-2.1-fast";
+export const KREA_MODEL: "krea2";
 /** Image model IDs served by the Mac Qwen service, in the order the web form lists them. */
 export const QWEN_MODELS: readonly string[];
 export const QWEN_TIMEOUT_MS: number;

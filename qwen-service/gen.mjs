@@ -14,6 +14,7 @@ const usage = `Usage: gen.sh "<prompt>" [size | WxH] [options]
   --sampler NAME    KSampler sampler (default er_sde)
   --scheduler NAME  KSampler scheduler (default simple)
   --fast            4-step Qwen-Image-2.1 Lightning v2-RL, CFG 1, Euler with release sigmas
+  --model NAME      qwen (default) or krea2 (Krea 2 Raw + Verite realism, text only)
   --batch N         images per run, 1–4 (default 1)
   --ref FILE        reference image (repeatable, up to 16); without a size the output follows the first one`;
 
@@ -34,6 +35,7 @@ try {
       sampler: { type: "string" },
       scheduler: { type: "string" },
       fast: { type: "boolean", default: false },
+      model: { type: "string", default: "qwen" },
       batch: { type: "string", default: "1" },
       ref: { type: "string", multiple: true, default: [] },
       help: { type: "boolean", short: "h" },
@@ -47,12 +49,17 @@ if (args.values.help) {
   process.exit(0);
 }
 const fast = args.values.fast;
+const krea = args.values.model === "krea2";
+if (!["qwen", "krea2"].includes(args.values.model)) fail("--model must be qwen or krea2.");
+if (krea && (fast || args.values.ref.length || ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined))) {
+  fail("Krea 2 uses a fixed Raw preset and cannot combine with --fast, --ref or sampler overrides.");
+}
 if (fast && ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined)) {
   fail("--fast uses a fixed 4-step training schedule and cannot combine with --steps/--cfg/--sampler/--scheduler.");
 }
-args.values.steps ??= fast ? "4" : "35";
-args.values.cfg ??= fast ? "1" : "5";
-args.values.sampler ??= fast ? "euler" : "er_sde";
+args.values.steps ??= krea ? "52" : fast ? "4" : "35";
+args.values.cfg ??= krea ? "4.5" : fast ? "1" : "5";
+args.values.sampler ??= krea || fast ? "euler" : "er_sde";
 args.values.scheduler ??= fast ? "lightning v2-RL (fixed release sigmas, no terminal stretching)" : "simple";
 const [prompt, sizeArg, ...extra] = args.positionals;
 const sizeText = sizeArg ?? "1024";
@@ -107,8 +114,8 @@ async function ownServerAvailable() {
 }
 
 async function queue() {
-  const graph = JSON.parse(await readFile(join(root, "workflow_api.json"), "utf8"));
-  const prefix = `qwen_${refSized ? "ref" : `${width}x${height}`}_${crypto.randomUUID().slice(0, 8)}`;
+  const graph = JSON.parse(await readFile(join(root, krea ? "workflow_krea2_api.json" : "workflow_api.json"), "utf8"));
+  const prefix = `${krea ? "krea2" : "qwen"}_${refSized ? "ref" : `${width}x${height}`}_${crypto.randomUUID().slice(0, 8)}`;
   for (const [i, ref] of refs.entries()) {
     const form = new FormData();
     form.append("image", Bun.file(ref), `${prefix}_ref${i + 1}${extname(ref)}`);
@@ -121,7 +128,16 @@ async function queue() {
     graph["452"].inputs[`images.image_${i + 1}`] = [node, 0];
   }
   if (refs.length) graph["452"].inputs.vae = ["454", 0];
-  Object.assign(graph["452"].inputs, { prompt, negative_prompt: args.values.neg, resolution: Math.round(Math.sqrt(width * height) / 32) * 32 });
+  if (krea) {
+    graph["452"].inputs.text = /candid amateur photo|amateur phone photo|candid flash photo/i.test(prompt)
+      ? prompt : `Candid amateur photo, ${prompt}`;
+    graph["455"].inputs.text = args.values.neg;
+    // Match the Raw reference's mu endpoints: 256px -> .5, 1280px -> 1.15.
+    const mu = 0.5 + (width * height / 256 - 256) * (1.15 - 0.5) / (6400 - 256);
+    Object.assign(graph["481"].inputs, { width, height, base_shift: mu, max_shift: mu });
+  } else {
+    Object.assign(graph["452"].inputs, { prompt, negative_prompt: args.values.neg, resolution: Math.round(Math.sqrt(width * height) / 32) * 32 });
+  }
   Object.assign(graph["456"].inputs, { width, height, batch_size: batch });
   if (refSized) {
     if (batch > 1) throw new Error("--batch needs an explicit size when using --ref.");

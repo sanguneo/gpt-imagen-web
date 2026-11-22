@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import express from 'express';
 import multer from 'multer';
-import { QWEN_MODEL, QWEN_MODELS, QWEN_TIMEOUT_MS, assertQwenConfigured, generateQwenImage, isQwenModel, normalizeQwenSize, parseQwenSeed } from './qwen.js';
+import { KREA_MODEL, QWEN_MODEL, QWEN_MODELS, QWEN_TIMEOUT_MS, assertQwenConfigured, generateQwenImage, isQwenModel, normalizeQwenSize, parseQwenSeed } from './qwen.js';
 
 import {
   CODEX_MODEL_CHOICES,
@@ -193,7 +193,7 @@ function publicEntry(entry, { fullPrompt = true } = {}) {
     imageModel: resolveStoredImageModel(entry.imageModel),
     stage: entry.stage || null,
     queuePosition: entry.queuePosition ?? null,
-    // Only the normal model has measured timings; the fast model reports none until it is measured.
+    // Only the normal model has measured timings.
     estimatedTime: entry.imageModel === QWEN_MODEL ? '512×512 약 7분 · 1024×1024 약 28분 · 참조·크기에 따라 1시간 이상, 생성 제한 2시간' : null,
     negative: entry.negative || '',
     seed: entry.seed ?? null,
@@ -428,6 +428,9 @@ app.post('/api/generate', upload.array('images', maxImages), async (req, res) =>
     const body = req.body || {};
     const prompt = cleanPrompt(body.prompt);
     const requestedImageModel = resolveRequestedImageModel(body.imageModel);
+    if (requestedImageModel === KREA_MODEL && files.length > 0) {
+      return res.status(400).json({ ok: false, error: 'Krea 2는 텍스트만 지원하며 참고 이미지를 첨부할 수 없습니다.' });
+    }
     const isQwen = isQwenModel(requestedImageModel);
     if (isQwen) assertQwenConfigured();
     const size = isQwen ? normalizeQwenSize(body.size) : resolveRequestedSize(body.size);
