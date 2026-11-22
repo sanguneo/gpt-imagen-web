@@ -99,7 +99,8 @@ test('Qwen rejects unsupported dimensions and seeds at the input boundary', () =
 for (const { imageModel, mode, withReference } of [
   { imageModel: 'qwen-image-2.1', mode: 'normal', withReference: true },
   { imageModel: 'qwen-image-2.1-fast', mode: 'fast', withReference: true },
-  { imageModel: 'krea2', mode: 'krea2', withReference: false }
+  { imageModel: 'krea2', mode: 'krea2', withReference: false },
+  { imageModel: 'krea2-fast', mode: 'krea2-fast', withReference: false }
 ]) {
   test(`web ${imageModel} job submits ${mode} mode ${withReference ? 'with references' : 'without references'} and saves the remote PNG in history`, async (t) => {
     const { submissions, historyDir } = await startFakeMac(t);
@@ -140,23 +141,25 @@ for (const { imageModel, mode, withReference } of [
   });
 }
 
-test('web rejects a Krea 2 job with a reference before writing history or submitting to the Mac', async (t) => {
-  const { submissions, historyDir } = await startFakeMac(t);
-  const origin = await startWeb(t, 'reject-krea2-reference');
-  const form = new FormData();
-  form.set('prompt', 'a red teapot');
-  form.set('imageModel', 'krea2');
-  form.append('images', new Blob([PNG], { type: 'image/png' }), 'ref.png');
+for (const imageModel of ['krea2', 'krea2-fast']) {
+  test(`web rejects a ${imageModel} job with a reference before writing history or submitting to the Mac`, async (t) => {
+    const { submissions, historyDir } = await startFakeMac(t);
+    const origin = await startWeb(t, `reject-${imageModel}-reference`);
+    const form = new FormData();
+    form.set('prompt', 'a red teapot');
+    form.set('imageModel', imageModel);
+    form.append('images', new Blob([PNG], { type: 'image/png' }), 'ref.png');
 
-  const response = await fetch(`${origin}/api/generate`, { method: 'POST', body: form });
+    const response = await fetch(`${origin}/api/generate`, { method: 'POST', body: form });
 
-  assert.equal(response.status, 400);
-  const result = await response.json();
-  assert.equal(result.ok, false);
-  assert.match(result.error, /Krea 2.*참고 이미지/);
-  assert.deepEqual(await fs.readdir(historyDir), []);
-  assert.deepEqual(submissions, []);
-});
+    assert.equal(response.status, 400);
+    const result = await response.json();
+    assert.equal(result.ok, false);
+    assert.match(result.error, /Krea 2.*참고 이미지/);
+    assert.deepEqual(await fs.readdir(historyDir), []);
+    assert.deepEqual(submissions, []);
+  });
+}
 
 test('resumed Qwen completion retains the Mac start time and full elapsed duration', async (t) => {
   const id = '12345678901234567890';

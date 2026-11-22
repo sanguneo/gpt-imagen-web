@@ -13,7 +13,7 @@ const usage = `Usage: gen.sh "<prompt>" [size | WxH] [options]
   --cfg X           CFG scale (default 5)
   --sampler NAME    KSampler sampler (default er_sde)
   --scheduler NAME  KSampler scheduler (default simple)
-  --fast            4-step Qwen-Image-2.1 Lightning v2-RL, CFG 1, Euler with release sigmas
+  --fast            4-step Qwen v2-RL, or 8-step Krea turbo with --model krea2; CFG 1
   --model NAME      qwen (default) or krea2 (Krea 2 Raw + Verite realism, text only)
   --batch N         images per run, 1–4 (default 1)
   --ref FILE        reference image (repeatable, up to 16); without a size the output follows the first one`;
@@ -50,17 +50,18 @@ if (args.values.help) {
 }
 const fast = args.values.fast;
 const krea = args.values.model === "krea2";
+const kreaFast = krea && fast;
 if (!["qwen", "krea2"].includes(args.values.model)) fail("--model must be qwen or krea2.");
-if (krea && (fast || args.values.ref.length || ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined))) {
-  fail("Krea 2 uses a fixed Raw preset and cannot combine with --fast, --ref or sampler overrides.");
+if (krea && (args.values.ref.length || ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined))) {
+  fail("Krea 2 uses fixed presets and cannot combine with --ref or sampler overrides.");
 }
 if (fast && ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined)) {
   fail("--fast uses a fixed 4-step training schedule and cannot combine with --steps/--cfg/--sampler/--scheduler.");
 }
-args.values.steps ??= krea ? "52" : fast ? "4" : "35";
-args.values.cfg ??= krea ? "4.5" : fast ? "1" : "5";
+args.values.steps ??= kreaFast ? "8" : krea ? "52" : fast ? "4" : "35";
+args.values.cfg ??= fast ? "1" : krea ? "4.5" : "5";
 args.values.sampler ??= krea || fast ? "euler" : "er_sde";
-args.values.scheduler ??= fast ? "lightning v2-RL (fixed release sigmas, no terminal stretching)" : "simple";
+args.values.scheduler ??= fast && !krea ? "lightning v2-RL (fixed release sigmas, no terminal stretching)" : "simple";
 const [prompt, sizeArg, ...extra] = args.positionals;
 const sizeText = sizeArg ?? "1024";
 const refs = args.values.ref;
@@ -133,8 +134,13 @@ async function queue() {
       ? prompt : `Candid amateur photo, ${prompt}`;
     graph["455"].inputs.text = args.values.neg;
     // Match the Raw reference's mu endpoints: 256px -> .5, 1280px -> 1.15.
-    const mu = 0.5 + (width * height / 256 - 256) * (1.15 - 0.5) / (6400 - 256);
+    const mu = kreaFast ? 1.15 : 0.5 + (width * height / 256 - 256) * (1.15 - 0.5) / (6400 - 256);
     Object.assign(graph["481"].inputs, { width, height, base_shift: mu, max_shift: mu });
+    if (kreaFast) {
+      graph.kreaTurbo = { class_type: "LoraLoaderModelOnly", inputs: { model: ["451", 0], lora_name: "krea2_turbo_lora_rank_64_bf16.safetensors", strength_model: 1 } };
+      graph["480"].inputs.model = ["kreaTurbo", 0];
+      graph["455"] = { class_type: "ConditioningZeroOut", inputs: { conditioning: ["452", 0] } };
+    }
   } else {
     Object.assign(graph["452"].inputs, { prompt, negative_prompt: args.values.neg, resolution: Math.round(Math.sqrt(width * height) / 32) * 32 });
   }
@@ -147,7 +153,7 @@ async function queue() {
   Object.assign(graph["458"].inputs, {
     seed, steps, cfg, sampler_name: args.values.sampler, scheduler: args.values.scheduler,
   });
-  if (fast) applyLightning(graph, { seed });
+  if (fast && !krea) applyLightning(graph, { seed });
   graph["485"].inputs.filename_prefix = prefix;
   console.error(`Seed: ${seed}, steps ${steps}, cfg ${cfg}, ${args.values.sampler}/${args.values.scheduler}, ${refSized ? "size of ref 1" : `${width}x${height}`} x${batch}, refs ${refs.length}`);
   const started = performance.now();

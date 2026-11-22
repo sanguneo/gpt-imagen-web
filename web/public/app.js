@@ -16,7 +16,9 @@ let isLoadingHistory = false;
 let hasActiveQwen = false;
 let qwenDetailId = null;
 const KREA_MODEL = 'krea2';
-const QWEN_MODELS = ['qwen-image-2.1', 'qwen-image-2.1-fast', KREA_MODEL];
+const KREA_FAST_MODEL = 'krea2-fast';
+const QWEN_FAST_MODEL = 'qwen-image-2.1-fast';
+const QWEN_MODELS = ['qwen-image-2.1', QWEN_FAST_MODEL, KREA_MODEL, KREA_FAST_MODEL];
 const refreshSettings = loadRefreshSettings();
 const IPMPT_API = '/api/ipmpt';
 const IPMPT_MODEL = 'OpenAI - Codex';
@@ -62,7 +64,7 @@ function qwenProgress(item) {
 function updateModelControls() {
   const imageModel = form.imageModel.value;
   const qwen = isQwenModel(imageModel);
-  const textOnly = imageModel === KREA_MODEL;
+  const textOnly = imageModel === KREA_MODEL || imageModel === KREA_FAST_MODEL;
   form.images.disabled = textOnly;
   form.images.closest('.field').hidden = textOnly;
   form.model.disabled = qwen;
@@ -73,8 +75,10 @@ function updateModelControls() {
   form.negative.disabled = !qwen;
   form.seed.disabled = !qwen;
   for (const note of document.querySelectorAll('[data-qwen-model]')) note.hidden = note.dataset.qwenModel !== imageModel;
+  document.querySelector('#textOnlyHint').hidden = !textOnly;
   // A hidden description is still announced, so the field only references the hint while it shows.
   const negativeHint = document.querySelector('#negativeHint');
+  negativeHint.hidden = imageModel !== QWEN_FAST_MODEL && imageModel !== KREA_FAST_MODEL;
   if (negativeHint.hidden) form.negative.removeAttribute('aria-describedby');
   else form.negative.setAttribute('aria-describedby', negativeHint.id);
   for (const option of form.size.options) {
@@ -251,6 +255,7 @@ async function ipmptApi(path, options) {
 
 function ipmptModelLabel(imageModel) {
   if (imageModel === KREA_MODEL) return 'Krea 2 실사';
+  if (imageModel === KREA_FAST_MODEL) return 'Krea 2 빠름';
   return isQwenModel(imageModel) ? 'Qwen-Image 2.1' : IPMPT_MODEL;
 }
 

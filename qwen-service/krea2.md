@@ -15,6 +15,25 @@ Run `bun test --timeout 20000 ./qwen-service/krea2-check.mjs` from the repositor
 root to check the generated ComfyUI prompt at the real CLI/HTTP boundary.
 This suite owns port 8188 briefly and must run without a real ComfyUI generation.
 
+## Fast mode
+
+`gen.sh --model krea2 --fast "a cat on a sofa" 512x512` selects the fast preset.
+The service accepts `mode=krea2-fast`. It reuses the Raw checkpoint and applies
+`krea2_turbo_lora_rank_64_bf16.safetensors` at strength 1, followed by Verite
+at strength 1. Slow `krea2` and both Qwen modes retain their existing settings.
+
+The official Comfy-Org Turbo template at revision
+`1ae390968e323dba24a6991d1860ded051f5a79b` uses 8 steps, CFG 1, Euler/simple
+and zeroed negative conditioning. The fast preset follows these settings and
+uses the model's Turbo mu of 1.15 at every resolution. At CFG 1 the negative
+prompt has no guidance effect. It remains available in the shared form.
+
+Turbo LoRA source: `Comfy-Org/Krea-2`, revision
+`588feaf955b08b9ac4723eeb751752ab045dba71`,
+`loras/krea2_turbo_lora_rank_64_bf16.safetensors`, 469,423,778 bytes.
+SHA256: `db8c5bae0a415d448da9d842111d6e51f7d32e47143a3118eb267e5c4773de87`.
+It shares the repository's Krea 2 Community License declaration.
+
 ## Pinned files
 
 Place these under the generator's `models/` directory. Downloaded weights must

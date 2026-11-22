@@ -4,8 +4,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 export const QWEN_MODEL = 'qwen-image-2.1';
 export const QWEN_FAST_MODEL = 'qwen-image-2.1-fast';
 export const KREA_MODEL = 'krea2';
+export const KREA_FAST_MODEL = 'krea2-fast';
 /** Image model IDs served by the Mac Qwen service, in the order the web form lists them. */
-export const QWEN_MODELS = Object.freeze([QWEN_MODEL, QWEN_FAST_MODEL, KREA_MODEL]);
+export const QWEN_MODELS = Object.freeze([QWEN_MODEL, QWEN_FAST_MODEL, KREA_MODEL, KREA_FAST_MODEL]);
 export const QWEN_TIMEOUT_MS = Math.max(120 * 60_000, Number(process.env.QWEN_JOB_TIMEOUT_MS) || 125 * 60_000);
 
 export class QwenError extends Error {
@@ -87,6 +88,7 @@ export async function generateQwenImage(entry, { images, outputPath, onProgress 
     // The persisted model decides the mode, so a resubmission after a restart stays on the same path.
     switch (entry.imageModel) {
       case KREA_MODEL: form.set('mode', 'krea2'); break;
+      case KREA_FAST_MODEL: form.set('mode', 'krea2-fast'); break;
       case QWEN_FAST_MODEL: form.set('mode', 'fast'); break;
       default: form.set('mode', 'normal');
     }

@@ -53,6 +53,7 @@ import { parseArgs } from "node:util";
 const root = import.meta.dir;
 const {positionals:[prompt,size], values} = parseArgs({allowPositionals:true,options:{neg:{type:"string"},seed:{type:"string"},ref:{type:"string",multiple:true,default:[]},fast:{type:"boolean"},model:{type:"string"}}});
 if (prompt === "krea test" && values.model !== "krea2") process.exit(9);
+if (prompt === "krea fast test" && (values.model !== "krea2" || !values.fast)) process.exit(9);
 const options = ["--neg",values.neg,...(values.seed === undefined ? [] : ["--seed",values.seed]),...values.ref.flatMap(ref => ["--ref",ref]),...(values.fast ? ["--fast"] : [])];
 await mkdir(join(root, "exclusive"));
 await appendFile(join(root, "calls"), JSON.stringify({prompt, size, options, pid:process.pid})+"\\n");
@@ -124,33 +125,34 @@ afterEach(async () => {
   }
 });
 
-test.each(["json", "multipart"])("Krea mode generates and persists through %s", async (transport) => {
+test.each([["krea2", "json"], ["krea2", "multipart"], ["krea2-fast", "json"], ["krea2-fast", "multipart"]])("Krea mode %s generates and persists through %s", async (mode, transport) => {
   const { root, start } = await fixture();
   const app = await start();
+  const prompt = mode === "krea2-fast" ? "krea fast test" : "krea test";
   let id;
   if (transport === "json") {
-    id = await app.submit({ prompt: "krea test", mode: "krea2" });
+    id = await app.submit({ prompt, mode });
   } else {
     const form = new FormData();
-    form.set("prompt", "krea test");
+    form.set("prompt", prompt);
     form.set("size", "512x512");
-    form.set("mode", "krea2");
+    form.set("mode", mode);
     const response = await app.http("/jobs", { method: "POST", body: form });
     expect(response.status).toBe(202);
     id = (await response.json()).id;
   }
-  expect((await app.state(id, "done")).mode).toBe("krea2");
+  expect((await app.state(id, "done")).mode).toBe(mode);
   expect(Buffer.from(await (await app.http(`/jobs/${id}/image`)).arrayBuffer())).toEqual(png);
-  expect(JSON.parse(await readFile(join(root, "jobs", id, "job.json"), "utf8")).input.mode).toBe("krea2");
+  expect(JSON.parse(await readFile(join(root, "jobs", id, "job.json"), "utf8")).input.mode).toBe(mode);
 });
 
-test("Krea references are rejected before generation", async () => {
+test.each(["krea2", "krea2-fast"])("Krea %s references are rejected before generation", async (mode) => {
   const { root, start } = await fixture();
   const app = await start();
   const form = new FormData();
   form.set("prompt", "krea test");
   form.set("size", "512x512");
-  form.set("mode", "krea2");
+  form.set("mode", mode);
   form.append("images", new Blob([png], { type: "image/png" }), "ref.png");
   const response = await app.http("/jobs", { method: "POST", body: form });
   expect(response.status).toBe(400);
