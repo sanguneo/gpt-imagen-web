@@ -432,7 +432,7 @@ app.post('/api/generate', upload.array('images', maxImages), async (req, res) =>
       return res.status(400).json({ ok: false, error: 'Krea 2는 텍스트만 지원하며 참고 이미지를 첨부할 수 없습니다.' });
     }
     if (requestedImageModel === KREA_ID_MODEL && files.length !== 1) {
-      return res.status(400).json({ ok: false, error: 'Krea 2 인물참고는 참고 이미지를 정확히 1장 첨부해야 합니다.' });
+      return res.status(400).json({ ok: false, error: '참고 이미지 1장을 첨부하세요.' });
     }
     const isQwen = isQwenModel(requestedImageModel);
     if (isQwen) assertQwenConfigured();
