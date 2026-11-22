@@ -54,6 +54,7 @@ const root = import.meta.dir;
 const {positionals:[prompt,size], values} = parseArgs({allowPositionals:true,options:{neg:{type:"string"},seed:{type:"string"},ref:{type:"string",multiple:true,default:[]},fast:{type:"boolean"},model:{type:"string"}}});
 if (prompt === "krea test" && values.model !== "krea2") process.exit(9);
 if (prompt === "krea fast test" && (values.model !== "krea2" || !values.fast)) process.exit(9);
+if (prompt === "identity test" && (values.model !== "krea2-id" || values.fast || values.ref.length !== 1)) process.exit(9);
 const options = ["--neg",values.neg,...(values.seed === undefined ? [] : ["--seed",values.seed]),...values.ref.flatMap(ref => ["--ref",ref]),...(values.fast ? ["--fast"] : [])];
 await mkdir(join(root, "exclusive"));
 await appendFile(join(root, "calls"), JSON.stringify({prompt, size, options, pid:process.pid})+"\\n");
@@ -158,6 +159,43 @@ test.each(["krea2", "krea2-fast"])("Krea %s references are rejected before gener
   expect(response.status).toBe(400);
   expect((await response.json()).error).toContain("Krea");
   expect(await Bun.file(join(root, "calls")).exists()).toBe(false);
+});
+
+test.each([0, 2])("Identity mode rejects %i references before generation", async (count) => {
+  const { root, start } = await fixture();
+  const app = await start();
+  const form = new FormData();
+  form.set("prompt", "identity test");
+  form.set("size", "512x512");
+  form.set("mode", "krea2-id");
+  for (let i = 0; i < count; i++) form.append("images", new Blob([png], { type: "image/png" }), `ref${i}.png`);
+  const response = await app.http("/jobs", { method: "POST", body: form });
+  expect(response.status).toBe(400);
+  expect((await response.json()).error).toContain("exactly one reference");
+  expect(await Bun.file(join(root, "calls")).exists()).toBe(false);
+});
+
+test("Identity mode rejects JSON without a reference", async () => {
+  const { start } = await fixture();
+  const app = await start();
+  const response = await app.http("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: "identity test", size: "512x512", mode: "krea2-id" }) });
+  expect(response.status).toBe(400);
+  expect((await response.json()).error).toContain("exactly one reference");
+});
+
+test("Identity mode persists and generates with exactly one uploaded reference", async () => {
+  const { start } = await fixture();
+  const app = await start();
+  const form = new FormData();
+  form.set("prompt", "identity test");
+  form.set("size", "512x512");
+  form.set("mode", "krea2-id");
+  form.append("images", new Blob([png], { type: "image/png" }), "ref.png");
+  const response = await app.http("/jobs", { method: "POST", body: form });
+  expect(response.status).toBe(202);
+  const { id } = await response.json();
+  expect((await app.state(id, "done")).mode).toBe("krea2-id");
+  expect(Buffer.from(await (await app.http(`/jobs/${id}/image`)).arrayBuffer())).toEqual(png);
 });
 
 test("all routes require Bearer auth before routing or parsing", async () => {

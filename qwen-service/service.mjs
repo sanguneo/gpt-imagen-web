@@ -91,7 +91,8 @@ async function parseJob(request) {
   }
   if (typeof fields.prompt !== "string" || !fields.prompt.trim() || fields.prompt.length > 60000) throw new ServiceError("Invalid prompt (1..60000 characters)", 400);
   if (fields.requestId !== undefined && (typeof fields.requestId !== "string" || !/^[0-9a-f]{20}$/.test(fields.requestId))) throw new ServiceError("Invalid requestId (20 lowercase hex characters)", 400);
-  if (fields.mode !== undefined && !["normal", "fast", "krea2", "krea2-fast"].includes(fields.mode)) throw new ServiceError("Invalid mode (normal, fast, krea2 or krea2-fast)", 400);
+  if (fields.mode !== undefined && !["normal", "fast", "krea2", "krea2-fast", "krea2-id"].includes(fields.mode)) throw new ServiceError("Invalid mode (normal, fast, krea2, krea2-fast or krea2-id)", 400);
+  if (fields.mode === "krea2-id" && images.length !== 1) throw new ServiceError("Krea 2 Identity requires exactly one reference image", 400);
   if (["krea2", "krea2-fast"].includes(fields.mode) && images.length) throw new ServiceError("Krea 2 supports text-to-image only", 400);
   if (fields.negative !== undefined && (typeof fields.negative !== "string" || fields.negative.length > 60000)) throw new ServiceError("Invalid negative", 400);
   if (typeof fields.size !== "string" || !/^\d{3,4}x\d{3,4}$/.test(fields.size)
@@ -165,6 +166,7 @@ async function main() {
     for (const ref of job.input.refs) args.push("--ref", join(directory, ref));
     if (job.input.mode === "fast" || job.input.mode === "krea2-fast") args.push("--fast");
     if (job.input.mode === "krea2" || job.input.mode === "krea2-fast") args.push("--model", "krea2");
+    if (job.input.mode === "krea2-id") args.push("--model", "krea2-id");
     args.push("--", job.input.prompt, job.input.size);
     const stdout = openSync(join(directory, "stdout.log"), "w", 0o600);
     const stderr = openSync(join(directory, "stderr.log"), "w", 0o600);

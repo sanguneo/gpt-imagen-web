@@ -17,8 +17,9 @@ let hasActiveQwen = false;
 let qwenDetailId = null;
 const KREA_MODEL = 'krea2';
 const KREA_FAST_MODEL = 'krea2-fast';
+const KREA_ID_MODEL = 'krea2-id';
 const QWEN_FAST_MODEL = 'qwen-image-2.1-fast';
-const QWEN_MODELS = ['qwen-image-2.1', QWEN_FAST_MODEL, KREA_MODEL, KREA_FAST_MODEL];
+const QWEN_MODELS = ['qwen-image-2.1', QWEN_FAST_MODEL, KREA_MODEL, KREA_FAST_MODEL, KREA_ID_MODEL];
 const refreshSettings = loadRefreshSettings();
 const IPMPT_API = '/api/ipmpt';
 const IPMPT_MODEL = 'OpenAI - Codex';
@@ -65,8 +66,14 @@ function updateModelControls() {
   const imageModel = form.imageModel.value;
   const qwen = isQwenModel(imageModel);
   const textOnly = imageModel === KREA_MODEL || imageModel === KREA_FAST_MODEL;
+  const identity = imageModel === KREA_ID_MODEL;
   form.images.disabled = textOnly;
   form.images.closest('.field').hidden = textOnly;
+  form.images.required = identity;
+  form.images.multiple = !identity;
+  // References picked for a multi-reference model cannot go to the one-reference mode.
+  if (identity && form.images.files.length > 1) form.images.value = '';
+  document.querySelector('#referenceOptionalLabel').hidden = identity;
   form.model.disabled = qwen;
   form.model.closest('.field').hidden = qwen;
   form.imageModel.closest('.field').classList.toggle('qwenModelField', qwen);
@@ -78,7 +85,10 @@ function updateModelControls() {
   document.querySelector('#textOnlyHint').hidden = !textOnly;
   // A hidden description is still announced, so the field only references the hint while it shows.
   const negativeHint = document.querySelector('#negativeHint');
-  negativeHint.hidden = imageModel !== QWEN_FAST_MODEL && imageModel !== KREA_FAST_MODEL;
+  // Both fast modes and the identity mode sample at CFG 1.
+  const fast = imageModel === QWEN_FAST_MODEL || imageModel === KREA_FAST_MODEL;
+  negativeHint.hidden = !fast && !identity;
+  document.querySelector('#fastNegativeHint').hidden = !fast;
   if (negativeHint.hidden) form.negative.removeAttribute('aria-describedby');
   else form.negative.setAttribute('aria-describedby', negativeHint.id);
   for (const option of form.size.options) {
@@ -256,6 +266,7 @@ async function ipmptApi(path, options) {
 function ipmptModelLabel(imageModel) {
   if (imageModel === KREA_MODEL) return 'Krea 2 실사';
   if (imageModel === KREA_FAST_MODEL) return 'Krea 2 빠름';
+  if (imageModel === KREA_ID_MODEL) return 'Krea 2 인물참고';
   return isQwenModel(imageModel) ? 'Qwen-Image 2.1' : IPMPT_MODEL;
 }
 

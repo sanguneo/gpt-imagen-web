@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import express from 'express';
 import multer from 'multer';
-import { KREA_FAST_MODEL, KREA_MODEL, QWEN_MODEL, QWEN_MODELS, QWEN_TIMEOUT_MS, assertQwenConfigured, generateQwenImage, isQwenModel, normalizeQwenSize, parseQwenSeed } from './qwen.js';
+import { KREA_FAST_MODEL, KREA_ID_MODEL, KREA_MODEL, QWEN_MODEL, QWEN_MODELS, QWEN_TIMEOUT_MS, assertQwenConfigured, generateQwenImage, isQwenModel, normalizeQwenSize, parseQwenSeed } from './qwen.js';
 
 import {
   CODEX_MODEL_CHOICES,
@@ -430,6 +430,9 @@ app.post('/api/generate', upload.array('images', maxImages), async (req, res) =>
     const requestedImageModel = resolveRequestedImageModel(body.imageModel);
     if ((requestedImageModel === KREA_MODEL || requestedImageModel === KREA_FAST_MODEL) && files.length > 0) {
       return res.status(400).json({ ok: false, error: 'Krea 2는 텍스트만 지원하며 참고 이미지를 첨부할 수 없습니다.' });
+    }
+    if (requestedImageModel === KREA_ID_MODEL && files.length !== 1) {
+      return res.status(400).json({ ok: false, error: 'Krea 2 인물참고는 참고 이미지를 정확히 1장 첨부해야 합니다.' });
     }
     const isQwen = isQwenModel(requestedImageModel);
     if (isQwen) assertQwenConfigured();

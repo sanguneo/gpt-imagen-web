@@ -100,7 +100,8 @@ for (const { imageModel, mode, withReference } of [
   { imageModel: 'qwen-image-2.1', mode: 'normal', withReference: true },
   { imageModel: 'qwen-image-2.1-fast', mode: 'fast', withReference: true },
   { imageModel: 'krea2', mode: 'krea2', withReference: false },
-  { imageModel: 'krea2-fast', mode: 'krea2-fast', withReference: false }
+  { imageModel: 'krea2-fast', mode: 'krea2-fast', withReference: false },
+  { imageModel: 'krea2-id', mode: 'krea2-id', withReference: true }
 ]) {
   test(`web ${imageModel} job submits ${mode} mode ${withReference ? 'with references' : 'without references'} and saves the remote PNG in history`, async (t) => {
     const { submissions, historyDir } = await startFakeMac(t);
@@ -161,6 +162,29 @@ for (const imageModel of ['krea2', 'krea2-fast']) {
   });
 }
 
+for (const references of [0, 2]) {
+  test(`web rejects a krea2-id job with ${references} references before writing history or submitting to the Mac`, async (t) => {
+    const { submissions, historyDir } = await startFakeMac(t);
+    const origin = await startWeb(t, `reject-krea2-id-${references}-references`);
+    // A supported model is never turned away as unknown, so the 400 below is the reference rule.
+    const health = await (await fetch(`${origin}/healthz`)).json();
+    assert.ok(health.imageModels.includes('krea2-id'), 'Expected the web server to support krea2-id');
+    const form = new FormData();
+    form.set('prompt', 'a red teapot');
+    form.set('imageModel', 'krea2-id');
+    for (let index = 0; index < references; index += 1) {
+      form.append('images', new Blob([PNG], { type: 'image/png' }), `ref-${index}.png`);
+    }
+
+    const response = await fetch(`${origin}/api/generate`, { method: 'POST', body: form });
+
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).ok, false);
+    assert.deepEqual(await fs.readdir(historyDir), []);
+    assert.deepEqual(submissions, []);
+  });
+}
+
 test('resumed Qwen completion retains the Mac start time and full elapsed duration', async (t) => {
   const id = '12345678901234567890';
   const startedAt = new Date(Date.now() - 120_000).toISOString();
@@ -197,4 +221,29 @@ test('fast Qwen job interrupted before its remote ID was saved is resubmitted on
   assert.equal(entry.status, 'done');
   assert.equal(entry.imageModel, 'qwen-image-2.1-fast');
   assert.deepEqual(submissions.map((form) => [form.get('requestId'), form.get('mode')]), [[id, 'fast']]);
+});
+
+test('krea2-id job interrupted before its remote ID was saved is resubmitted once with its stored reference', async (t) => {
+  const id = 'fedcba9876543210fedc';
+  const createdAt = new Date().toISOString();
+  const { submissions, historyDir } = await startFakeMac(t);
+  const inputDir = path.join(process.env.IMAGEN_DATA_DIR, 'inputs', id);
+  await fs.mkdir(inputDir, { recursive: true });
+  await fs.writeFile(path.join(inputDir, '01.png'), PNG);
+  await fs.writeFile(path.join(historyDir, `${id}.json`), JSON.stringify({
+    id, imageModel: 'krea2-id', model: null,
+    status: 'queued', prompt: 'a red teapot', size: '512x512',
+    createdAt, updatedAt: createdAt, inputImages: [{ mimetype: 'image/png', path: `${id}/01.png` }]
+  }));
+  const completed = completedHistory(historyDir, t);
+  const origin = await startWeb(t, 'recover-krea2-id');
+  await completed;
+  const { entry } = await (await fetch(`${origin}/api/history/${id}`)).json();
+  assert.equal(entry.status, 'done');
+  assert.equal(entry.imageModel, 'krea2-id');
+  assert.equal(submissions.length, 1);
+  const [submitted] = submissions;
+  assert.deepEqual([submitted.get('requestId'), submitted.get('mode')], [id, 'krea2-id']);
+  const references = await Promise.all(submitted.getAll('images').map(async (file) => Buffer.from(await file.arrayBuffer())));
+  assert.deepEqual(references, [PNG]);
 });

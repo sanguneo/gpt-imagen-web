@@ -14,7 +14,7 @@ const usage = `Usage: gen.sh "<prompt>" [size | WxH] [options]
   --sampler NAME    KSampler sampler (default er_sde)
   --scheduler NAME  KSampler scheduler (default simple)
   --fast            4-step Qwen v2-RL, or 8-step Krea turbo with --model krea2; CFG 1
-  --model NAME      qwen (default) or krea2 (Krea 2 Raw + Verite realism, text only)
+  --model NAME      qwen (default), krea2 (text only), krea2-id (exactly one --ref)
   --batch N         images per run, 1–4 (default 1)
   --ref FILE        reference image (repeatable, up to 16); without a size the output follows the first one`;
 
@@ -49,18 +49,21 @@ if (args.values.help) {
   process.exit(0);
 }
 const fast = args.values.fast;
+const identity = args.values.model === "krea2-id";
 const krea = args.values.model === "krea2";
 const kreaFast = krea && fast;
-if (!["qwen", "krea2"].includes(args.values.model)) fail("--model must be qwen or krea2.");
+if (!["qwen", "krea2", "krea2-id"].includes(args.values.model)) fail("--model must be qwen, krea2 or krea2-id.");
+if (identity && args.values.ref.length !== 1) fail("Krea 2 Identity requires exactly one reference image (--ref).");
+if (identity && (fast || ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined))) fail("Krea 2 Identity uses a fixed V2 preset; omit --fast and sampler overrides.");
 if (krea && (args.values.ref.length || ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined))) {
   fail("Krea 2 uses fixed presets and cannot combine with --ref or sampler overrides.");
 }
 if (fast && ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined)) {
   fail("--fast uses a fixed 4-step training schedule and cannot combine with --steps/--cfg/--sampler/--scheduler.");
 }
-args.values.steps ??= kreaFast ? "8" : krea ? "52" : fast ? "4" : "35";
-args.values.cfg ??= fast ? "1" : krea ? "4.5" : "5";
-args.values.sampler ??= krea || fast ? "euler" : "er_sde";
+args.values.steps ??= identity || kreaFast ? "8" : krea ? "52" : fast ? "4" : "35";
+args.values.cfg ??= identity || fast ? "1" : krea ? "4.5" : "5";
+args.values.sampler ??= identity || krea || fast ? "euler" : "er_sde";
 args.values.scheduler ??= fast && !krea ? "lightning v2-RL (fixed release sigmas, no terminal stretching)" : "simple";
 const [prompt, sizeArg, ...extra] = args.positionals;
 const sizeText = sizeArg ?? "1024";
@@ -68,7 +71,7 @@ const refs = args.values.ref;
 if (refs.length > 16) fail("At most 16 --ref images.");
 for (const ref of refs) if (!(await Bun.file(ref).exists())) fail(`No such file: ${ref}`);
 // With references and no explicit size, sample on the first reference's latent size.
-const refSized = refs.length > 0 && sizeArg === undefined;
+const refSized = !identity && refs.length > 0 && sizeArg === undefined;
 if (!prompt?.trim() || extra.length) fail("Expected one prompt and an optional size.");
 const sides = sizeText.toLowerCase().split("x").map(Number);
 const [width, height = width] = sides;
@@ -115,8 +118,8 @@ async function ownServerAvailable() {
 }
 
 async function queue() {
-  const graph = JSON.parse(await readFile(join(root, krea ? "workflow_krea2_api.json" : "workflow_api.json"), "utf8"));
-  const prefix = `${krea ? "krea2" : "qwen"}_${refSized ? "ref" : `${width}x${height}`}_${crypto.randomUUID().slice(0, 8)}`;
+  const graph = JSON.parse(await readFile(join(root, identity ? "workflow_krea2_id_api.json" : krea ? "workflow_krea2_api.json" : "workflow_api.json"), "utf8"));
+  const prefix = `${identity ? "krea2_id" : krea ? "krea2" : "qwen"}_${refSized ? "ref" : `${width}x${height}`}_${crypto.randomUUID().slice(0, 8)}`;
   for (const [i, ref] of refs.entries()) {
     const form = new FormData();
     form.append("image", Bun.file(ref), `${prefix}_ref${i + 1}${extname(ref)}`);
@@ -126,10 +129,13 @@ async function queue() {
     const { name, subfolder } = await response.json();
     const node = `ref${i + 1}`;
     graph[node] = { class_type: "LoadImage", inputs: { image: subfolder ? `${subfolder}/${name}` : name } };
-    graph["452"].inputs[`images.image_${i + 1}`] = [node, 0];
+    if (!identity) graph["452"].inputs[`images.image_${i + 1}`] = [node, 0];
   }
-  if (refs.length) graph["452"].inputs.vae = ["454", 0];
-  if (krea) {
+  if (refs.length && !identity) graph["452"].inputs.vae = ["454", 0];
+  if (identity) {
+    graph["452"].inputs.prompt = prompt;
+    graph["455"].inputs.prompt = args.values.neg.trim();
+  } else if (krea) {
     graph["452"].inputs.text = /\b(?:candid amateur photo|amateur phone photo|candid flash photo)\b/i.test(prompt)
       ? prompt : `Candid amateur photo, ${prompt}`;
     graph["455"].inputs.text = args.values.neg;

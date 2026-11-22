@@ -30,6 +30,7 @@ export const QWEN_MODEL: "qwen-image-2.1";
 export const QWEN_FAST_MODEL: "qwen-image-2.1-fast";
 export const KREA_MODEL: "krea2";
 export const KREA_FAST_MODEL: "krea2-fast";
+export const KREA_ID_MODEL: "krea2-id";
 /** Image model IDs served by the Mac Qwen service, in the order the web form lists them. */
 export const QWEN_MODELS: readonly string[];
 export const QWEN_TIMEOUT_MS: number;
