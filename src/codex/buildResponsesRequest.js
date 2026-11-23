@@ -1,20 +1,17 @@
 // @ts-nocheck
 import crypto from 'node:crypto';
 
+import {
+  getImageSizeWarnings,
+  normalizeImageSize
+} from './imageGenerationOptions.js';
+
+export { SUPPORTED_IMAGE_SIZES } from './imageGenerationOptions.js';
+
 export const REDACTED_ACCOUNT_ID = '[REDACTED_ACCOUNT_ID]';
 export const REDACTED_SESSION_ID = '[REDACTED_SESSION_ID]';
 export const REDACTED_INSTALLATION_ID = '[REDACTED_INSTALLATION_ID]';
 export const REDACTED_IMAGE_DATA = '[REDACTED_IMAGE_DATA]';
-export const SUPPORTED_IMAGE_SIZES = new Set([
-  'auto',
-  '1024x1024',
-  '1536x1024',
-  '1024x1536',
-  '2048x2048',
-  '2048x1152',
-  '3840x2160',
-  '2160x3840'
-]);
 
 /**
  * Return a redacted copy of request headers for debug output.
@@ -76,7 +73,7 @@ export function sanitizeRequestBody(body) {
  * Build the private Codex `/responses` request payload.
  *
  * @param {{ baseUrl: string, session: { accessToken: string, accountId: string, installationId?: string | null }, prompt: string, model: string, originator: string, includeReasoning?: boolean, sessionId?: string, images?: string[], size?: string }} options - Request inputs.
- * @returns {{ url: string, sessionId: string, headers: Record<string, string>, body: Record<string, unknown>, sanitized: { url: string, headers: Record<string, string>, body: Record<string, unknown> } }} Request details and a redacted debug copy.
+ * @returns {{ url: string, sessionId: string, headers: Record<string, string>, body: Record<string, unknown>, warnings: string[], sanitized: { url: string, headers: Record<string, string>, body: Record<string, unknown> } }} Request details and a redacted debug copy.
  */
 export function buildResponsesRequest({
   baseUrl,
@@ -87,14 +84,13 @@ export function buildResponsesRequest({
   includeReasoning = true,
   sessionId = crypto.randomUUID(),
   images,
-  size
+  size,
+  imageModel
 }) {
   if (!prompt || !prompt.trim()) {
     throw new Error('Prompt is required.');
   }
-  if (size && !SUPPORTED_IMAGE_SIZES.has(size)) {
-    throw new Error(`Unsupported image size: ${size}. Supported sizes: ${Array.from(SUPPORTED_IMAGE_SIZES).join(', ')}.`);
-  }
+  const normalizedSize = normalizeImageSize(size);
 
   const url = new URL('responses', baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();
   const headers = {
@@ -125,8 +121,9 @@ export function buildResponsesRequest({
     ],
     tools: [{
       type: 'image_generation',
+      ...(imageModel ? { model: imageModel } : {}),
       output_format: 'png',
-      ...(size ? { size } : {})
+      ...(normalizedSize ? { size: normalizedSize } : {})
     }],
     tool_choice: 'auto',
     parallel_tool_calls: false,
@@ -144,6 +141,7 @@ export function buildResponsesRequest({
     sessionId,
     headers,
     body,
+    warnings: getImageSizeWarnings(normalizedSize),
     sanitized: {
       url,
       headers: sanitizeHeaders(headers),

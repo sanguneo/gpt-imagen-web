@@ -1,0 +1,14 @@
+{
+  "451": {"class_type":"UNETLoader","inputs":{"unet_name":"krea2_turbo_fp8_scaled.safetensors","weight_dtype":"default"}},
+  "453": {"class_type":"CLIPLoader","inputs":{"clip_name":"qwen3vl_4b_fp8_scaled.safetensors","type":"krea2","device":"default"}},
+  "454": {"class_type":"VAELoader","inputs":{"vae_name":"qwen_image_vae.safetensors"}},
+  "452": {"class_type":"Krea2EditGroundedEncode","inputs":{"clip":["453",0],"prompt":"","image":["ref1",0],"grounding_px":768}},
+  "455": {"class_type":"Krea2EditGroundedEncode","inputs":{"clip":["453",0],"prompt":"","image":["ref1",0],"grounding_px":768}},
+  "456": {"class_type":"EmptySD3LatentImage","inputs":{"width":1024,"height":1024,"batch_size":1}},
+  "480": {"class_type":"LoraLoaderModelOnly","inputs":{"model":["451",0],"lora_name":"krea2_identity_edit_v2_r64.safetensors","strength_model":1}},
+  "source": {"class_type":"VAEEncode","inputs":{"pixels":["ref1",0],"vae":["454",0]}},
+  "identity": {"class_type":"Krea2EditModelPatch","inputs":{"model":["480",0],"source_latent":["source",0],"vae":["454",0],"source_image":["ref1",0],"target_latent":["456",0],"fit_mode":"fit","ref_boost":2,"ref_position":"beside (right of target)"}},
+  "458": {"class_type":"KSampler","inputs":{"model":["identity",0],"positive":["452",0],"negative":["455",0],"latent_image":["456",0],"seed":42,"steps":8,"cfg":1,"sampler_name":"euler","scheduler":"simple","denoise":1}},
+  "457": {"class_type":"VAEDecode","inputs":{"samples":["458",0],"vae":["454",0]}},
+  "485": {"class_type":"SaveImage","inputs":{"images":["457",0],"filename_prefix":"krea2_id"}}
+}

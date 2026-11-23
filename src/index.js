@@ -1,7 +1,14 @@
 // @ts-nocheck
 export { loadCodexSession } from './auth/loadCodexSession.js';
 export { validateCodexSession } from './auth/validateSession.js';
-export { resolveConfig, UNSUPPORTED_WARNING } from './config.js';
+export {
+  CODEX_MODEL_CHOICES,
+  DEFAULT_CODEX_MODEL,
+  DEFAULT_IMAGE_MODEL,
+  IMAGE_MODEL_CHOICES,
+  resolveConfig,
+  UNSUPPORTED_WARNING
+} from './config.js';
 export {
   REDACTED_ACCOUNT_ID,
   REDACTED_SESSION_ID,
@@ -10,6 +17,12 @@ export {
   sanitizeHeaders,
   sanitizeRequestBody
 } from './codex/buildResponsesRequest.js';
+export {
+  DEFAULT_IMAGE_SIZE,
+  SUPPORTED_IMAGE_SIZES,
+  getImageSizeWarnings,
+  normalizeImageSize
+} from './codex/imageGenerationOptions.js';
 export { parseSseText, summarizeEvents } from './codex/streamResponsesSse.js';
 export { extractImageGeneration } from './codex/extractImageGeneration.js';
 export { saveImage } from './fs/saveImage.js';

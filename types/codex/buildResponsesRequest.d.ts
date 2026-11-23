@@ -32,9 +32,9 @@ export function sanitizeRequestBody(body: {
  * Build the private Codex `/responses` request payload.
  *
  * @param {{ baseUrl: string, session: { accessToken: string, accountId: string, installationId?: string | null }, prompt: string, model: string, originator: string, includeReasoning?: boolean, sessionId?: string, images?: string[], size?: string }} options - Request inputs.
- * @returns {{ url: string, sessionId: string, headers: Record<string, string>, body: Record<string, unknown>, sanitized: { url: string, headers: Record<string, string>, body: Record<string, unknown> } }} Request details and a redacted debug copy.
+ * @returns {{ url: string, sessionId: string, headers: Record<string, string>, body: Record<string, unknown>, warnings: string[], sanitized: { url: string, headers: Record<string, string>, body: Record<string, unknown> } }} Request details and a redacted debug copy.
  */
-export function buildResponsesRequest({ baseUrl, session, prompt, model, originator, includeReasoning, sessionId, images, size }: {
+export function buildResponsesRequest({ baseUrl, session, prompt, model, originator, includeReasoning, sessionId, images, size, imageModel }: {
     baseUrl: string;
     session: {
         accessToken: string;
@@ -53,14 +53,15 @@ export function buildResponsesRequest({ baseUrl, session, prompt, model, origina
     sessionId: string;
     headers: Record<string, string>;
     body: Record<string, unknown>;
+    warnings: string[];
     sanitized: {
         url: string;
         headers: Record<string, string>;
         body: Record<string, unknown>;
     };
 };
+export { SUPPORTED_IMAGE_SIZES } from "./imageGenerationOptions.js";
 export const REDACTED_ACCOUNT_ID: "[REDACTED_ACCOUNT_ID]";
 export const REDACTED_SESSION_ID: "[REDACTED_SESSION_ID]";
 export const REDACTED_INSTALLATION_ID: "[REDACTED_INSTALLATION_ID]";
 export const REDACTED_IMAGE_DATA: "[REDACTED_IMAGE_DATA]";
-export const SUPPORTED_IMAGE_SIZES: Set<string>;

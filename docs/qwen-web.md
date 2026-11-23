@@ -1,0 +1,86 @@
+# Local Qwen web integration
+
+This provider is intentionally available only in the tailnet web application.
+The existing Codex CLI, Node SDK and Python SDK contracts are unchanged.
+Qwen uses an asynchronous job protocol, rather than the Codex authenticated API.
+
+The deployed web application and its GPT 2.5/2.6 support were present on OCI as
+uncommitted files at upstream revision 27db3d9. This change preserves those
+sources so the web application is reproducible from this repository.
+
+UI brief: the primary action remains "생성 시작". Reading priorities are prompt,
+model and size/reference controls, then progress and saved results. The local
+options follow the existing four GPT options: Qwen normal, Qwen 4-step fast,
+then `Krea 2 실사` (Raw), `Krea 2 빠름`, `Krea 2 인물참고` (Identity Edit) and
+`MOSS-Image`.
+The local options show negative prompt and seed. `Krea 2 실사` and
+`Krea 2 빠름` hide the reference field. `Krea 2 인물참고` keeps it under the
+label `인물 참고 이미지(필수, 1장)`, makes the input required and limits the
+picker to one file; selecting the mode while several references are attached
+clears them. `MOSS-Image` keeps the field optional under the label
+`참고 이미지(선택, 최대 4장)`; with more than four files attached the input
+carries a validation message and the browser blocks the submit. Its mode hint
+says that no reference means text-to-image, that an attached reference is
+edited, and that the prompt takes natural language or a JSON layout as written.
+Both fast modes and `Krea 2 인물참고` show a one-line hint that
+negative prompt has little effect at CFG 1; the hint is linked to the field with
+`aria-describedby` only while it is visible. Existing form fields, history,
+details, retry, and IPMPT save actions remain available. No new layout or
+visual style is introduced. The existing field, row, message, card, detail and
+pickerSearch primitives and the `web/public/style.css` palette, spacing and
+typography are reused; the hint adds one `hint` primitive that takes the
+label's size and colour at regular weight. Left out on purpose: time estimates
+or speed claims for the fast option, `Krea 2 인물참고` and `MOSS-Image`, which
+have no measurements here yet, any likeness claim or preview of the reference,
+and MOSS-Image step or CFG values, which belong to the Mac generator.
+
+Layout: retain the existing document scroller and responsive form grid;
+Qwen options use the same row/field primitives; modal details own their scroll.
+
+Set `QWEN_SERVICE_URL` and `QWEN_SERVICE_TOKEN_FILE` in the OCI service
+environment. The file must contain the shared Bearer token and be mode 600.
+Neither value belongs in version control. `QWEN_JOB_TIMEOUT_MS` defaults to
+125 minutes and cannot be set below 120 minutes; Mac queue time is excluded.
+Each fetch is limited to 30 seconds, generation is asynchronous, and a stable
+imagegen history ID is the remote idempotency key.
+
+Imagegen resumes unfinished Qwen jobs after restart without resubmitting a
+second generation. Mac service restart marks an interrupted generation as an
+error; completed images and queued jobs remain durable. Manual retry creates
+a new job. Qwen jobs have their own web tracking map so waiting on the Mac does
+not occupy the existing Codex concurrency slots.
+
+`qwen-image-2.1`, `qwen-image-2.1-fast`, `krea2`, `krea2-fast`, `krea2-id`, and `moss` share the Mac service job
+creation, retry, restart recovery, progress, history and details. The history
+entry stores the selected model, and each submission derives the Mac service
+`mode` from it: respectively `normal`, `fast`, `krea2`, `krea2-fast`,
+`krea2-id`, and `moss`. A job resubmitted after a restart therefore keeps its original mode,
+and a `krea2-id` or `moss` job is resubmitted with its stored references. `mode` is always
+sent, so the Mac service must accept the requested mode. The Qwen models are
+saved to IPMPT as "Qwen-Image 2.1"; the Krea 2 modes and MOSS-Image use their respective web labels.
+
+Qwen auto size means 1024x1024. Each side must be 256–2048 and a multiple of
+32. The web form offers 512x512 for a shorter run. Existing GPT sizes remain
+unchanged. Negative prompt and optional integer seed are forwarded for all
+six local modes. Both Qwen modes forward attached reference images up to
+the web app's configured limit. `krea2` and `krea2-fast` are text-to-image only; the generation
+endpoint rejects reference image uploads with HTTP 400. `krea2-id` takes
+exactly one reference image through the same `images` upload; the generation
+endpoint rejects zero or several with HTTP 400 before writing history, and the
+Mac service enforces the same count.
+`moss` takes zero to four reference images through the same `images` upload:
+with none the Mac generates from text, with one to four it edits them. The
+generation endpoint rejects a fifth with HTTP 400 before writing history, and
+the Mac service enforces the same bound. The app-wide `IMAGEN_MAX_IMAGES`
+limit (4 by default) answers first, so the MOSS-Image message appears only
+where that limit is set above four. The prompt is forwarded as written, so a
+raw JSON layout reaches the Mac unchanged; multipart encoding delivers its
+line breaks as CRLF.
+
+Estimated times come from this Mac's prior measurements: about 7 minutes for
+512x512, 28 minutes for 1024x1024 and over an hour for some reference jobs.
+The UI shows elapsed time, actual stage and queue position rather than a
+fabricated completion percentage. Active Qwen jobs refresh every five seconds.
+These timings belong to the normal Qwen model. Fast Qwen, every Krea 2 mode and MOSS-Image report no estimate
+(`estimatedTime` is null), so their progress line shows only the two-hour limit
+and their form guidance omits the timing sentence.
