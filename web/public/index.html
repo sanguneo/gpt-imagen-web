@@ -32,6 +32,7 @@
               <option value="krea2">Krea 2 실사</option>
               <option value="krea2-fast">Krea 2 빠름</option>
               <option value="krea2-id">Krea 2 인물참고</option>
+              <option value="moss">MOSS-Image</option>
             </select>
           </label>
           <label class="field">
@@ -57,7 +58,7 @@
             </select>
           </label>
           <label class="field grow">
-            <span class="label"><span id="referenceOptionalLabel">참고 이미지(선택)</span><span data-qwen-model="krea2-id" hidden>인물 참고 이미지(필수, 1장)</span></span>
+            <span class="label"><span id="referenceOptionalLabel">참고 이미지(선택)</span><span data-qwen-model="krea2-id" hidden>인물 참고 이미지(필수, 1장)</span><span data-qwen-model="moss" hidden>참고 이미지(선택, 최대 4장)</span></span>
             <input id="images" name="images" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple />
           </label>
         </div>
@@ -73,7 +74,7 @@
             <input class="pickerSearch" name="seed" type="number" min="0" max="9007199254740991" step="1" disabled />
           </label>
         </div>
-        <p id="qwenHint" class="msg" hidden>맥 로컬에서 한 장씩 생성합니다. <span data-qwen-model="qwen-image-2.1">512×512 약 7분, 1024×1024 약 28분이며 참조·크기에 따라 1시간 이상 걸릴 수 있습니다. </span><span id="textOnlyHint" hidden>텍스트 입력만 지원합니다. </span><span data-qwen-model="krea2-id" hidden>참고 이미지 속 인물로 프롬프트의 장면을 만듭니다. </span>auto는 1024×1024, 생성 제한은 2시간입니다. 진행 상태는 5초마다 갱신됩니다.</p>
+        <p id="qwenHint" class="msg" hidden>맥 로컬에서 한 장씩 생성합니다. <span data-qwen-model="qwen-image-2.1">512×512 약 7분, 1024×1024 약 28분이며 참조·크기에 따라 1시간 이상 걸릴 수 있습니다. </span><span id="textOnlyHint" hidden>텍스트 입력만 지원합니다. </span><span data-qwen-model="krea2-id" hidden>참고 이미지 속 인물로 프롬프트의 장면을 만듭니다. </span><span data-qwen-model="moss" hidden>참고 이미지가 없으면 텍스트만으로 생성하고, 첨부하면 이미지를 편집합니다. 프롬프트에는 자연어나 JSON&nbsp;레이아웃을 그대로 입력합니다. </span>auto는&nbsp;1024×1024, 생성&nbsp;제한은&nbsp;2시간입니다. 진행 상태는 5초마다 갱신됩니다.</p>
         <button id="submitBtn" type="submit">생성 시작</button>
         <p id="formMsg" class="msg" role="status"></p>
       </form>

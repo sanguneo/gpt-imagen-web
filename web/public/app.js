@@ -18,8 +18,10 @@ let qwenDetailId = null;
 const KREA_MODEL = 'krea2';
 const KREA_FAST_MODEL = 'krea2-fast';
 const KREA_ID_MODEL = 'krea2-id';
+const MOSS_MODEL = 'moss';
+const MOSS_MAX_REFERENCES = 4;
 const QWEN_FAST_MODEL = 'qwen-image-2.1-fast';
-const QWEN_MODELS = ['qwen-image-2.1', QWEN_FAST_MODEL, KREA_MODEL, KREA_FAST_MODEL, KREA_ID_MODEL];
+const QWEN_MODELS = ['qwen-image-2.1', QWEN_FAST_MODEL, KREA_MODEL, KREA_FAST_MODEL, KREA_ID_MODEL, MOSS_MODEL];
 const refreshSettings = loadRefreshSettings();
 const IPMPT_API = '/api/ipmpt';
 const IPMPT_MODEL = 'OpenAI - Codex';
@@ -73,7 +75,7 @@ function updateModelControls() {
   form.images.multiple = !identity;
   // References picked for a multi-reference model cannot go to the one-reference mode.
   if (identity && form.images.files.length > 1) form.images.value = '';
-  document.querySelector('#referenceOptionalLabel').hidden = identity;
+  document.querySelector('#referenceOptionalLabel').hidden = identity || imageModel === MOSS_MODEL;
   form.model.disabled = qwen;
   form.model.closest('.field').hidden = qwen;
   form.imageModel.closest('.field').classList.toggle('qwenModelField', qwen);
@@ -97,6 +99,12 @@ function updateModelControls() {
     option.hidden = option.hasAttribute('data-qwen-only') && !qwen;
   }
   if (form.size.selectedOptions[0]?.disabled) form.size.value = 'auto';
+  checkReferenceCount();
+}
+// More files than MOSS-Image takes block the submit through the input's own validation message.
+function checkReferenceCount() {
+  const tooMany = form.imageModel.value === MOSS_MODEL && form.images.files.length > MOSS_MAX_REFERENCES;
+  form.images.setCustomValidity(tooMany ? `MOSS-Image 참고 이미지는 최대 ${MOSS_MAX_REFERENCES}장입니다.` : '');
 }
 async function copyText(text, button) {
   await navigator.clipboard.writeText(text || '');
@@ -245,6 +253,7 @@ form.addEventListener('submit', async (event) => {
   }
 });
 form.imageModel.addEventListener('change', updateModelControls);
+form.images.addEventListener('change', checkReferenceCount);
 refreshBtn.addEventListener('click', () => loadHistory(currentPage).catch((error) => { formMsg.textContent = error.message; }));
 refreshIntervalEl.addEventListener('change', () => {
   refreshSettings.interval = Number(refreshIntervalEl.value);
@@ -267,6 +276,7 @@ function ipmptModelLabel(imageModel) {
   if (imageModel === KREA_MODEL) return 'Krea 2 실사';
   if (imageModel === KREA_FAST_MODEL) return 'Krea 2 빠름';
   if (imageModel === KREA_ID_MODEL) return 'Krea 2 인물참고';
+  if (imageModel === MOSS_MODEL) return 'MOSS-Image';
   return isQwenModel(imageModel) ? 'Qwen-Image 2.1' : IPMPT_MODEL;
 }
 

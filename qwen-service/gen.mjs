@@ -14,7 +14,7 @@ const usage = `Usage: gen.sh "<prompt>" [size | WxH] [options]
   --sampler NAME    KSampler sampler (default er_sde)
   --scheduler NAME  KSampler scheduler (default simple)
   --fast            4-step Qwen v2-RL, or 8-step Krea turbo with --model krea2; CFG 1
-  --model NAME      qwen (default), krea2 (text only), krea2-id (exactly one --ref)
+  --model NAME      qwen (default), krea2 (text only), krea2-id (one --ref), moss (0–4 refs)
   --batch N         images per run, 1–4 (default 1)
   --ref FILE        reference image (repeatable, up to 16); without a size the output follows the first one`;
 
@@ -52,7 +52,11 @@ const fast = args.values.fast;
 const identity = args.values.model === "krea2-id";
 const krea = args.values.model === "krea2";
 const kreaFast = krea && fast;
-if (!["qwen", "krea2", "krea2-id"].includes(args.values.model)) fail("--model must be qwen, krea2 or krea2-id.");
+const moss = args.values.model === "moss";
+const mossEdit = moss && args.values.ref.length > 0;
+if (!["qwen", "krea2", "krea2-id", "moss"].includes(args.values.model)) fail("--model must be qwen, krea2, krea2-id or moss.");
+if (moss && args.values.ref.length > 4) fail("At most 4 reference images for MOSS-Image.");
+if (moss && (fast || ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined))) fail("MOSS-Image uses fixed released presets; omit --fast and sampler overrides.");
 if (identity && args.values.ref.length !== 1) fail("Krea 2 Identity requires exactly one reference image (--ref).");
 if (identity && (fast || ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined))) fail("Krea 2 Identity uses a fixed V2 preset; omit --fast and sampler overrides.");
 if (krea && (args.values.ref.length || ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined))) {
@@ -61,17 +65,17 @@ if (krea && (args.values.ref.length || ["steps", "cfg", "sampler", "scheduler"].
 if (fast && ["steps", "cfg", "sampler", "scheduler"].some((key) => args.values[key] !== undefined)) {
   fail("--fast uses a fixed 4-step training schedule and cannot combine with --steps/--cfg/--sampler/--scheduler.");
 }
-args.values.steps ??= identity || kreaFast ? "8" : krea ? "52" : fast ? "4" : "35";
-args.values.cfg ??= identity || fast ? "1" : krea ? "4.5" : "5";
-args.values.sampler ??= identity || krea || fast ? "euler" : "er_sde";
-args.values.scheduler ??= fast && !krea ? "lightning v2-RL (fixed release sigmas, no terminal stretching)" : "simple";
+args.values.steps ??= moss ? (mossEdit ? "30" : "50") : identity || kreaFast ? "8" : krea ? "52" : fast ? "4" : "35";
+args.values.cfg ??= moss ? (mossEdit ? "4" : "3") : identity || fast ? "1" : krea ? "4.5" : "5";
+args.values.sampler ??= moss || identity || krea || fast ? "euler" : "er_sde";
+args.values.scheduler ??= moss ? (mossEdit ? "normal" : "sgm_uniform") : fast && !krea ? "lightning v2-RL (fixed release sigmas, no terminal stretching)" : "simple";
 const [prompt, sizeArg, ...extra] = args.positionals;
 const sizeText = sizeArg ?? "1024";
 const refs = args.values.ref;
 if (refs.length > 16) fail("At most 16 --ref images.");
 for (const ref of refs) if (!(await Bun.file(ref).exists())) fail(`No such file: ${ref}`);
 // With references and no explicit size, sample on the first reference's latent size.
-const refSized = !identity && refs.length > 0 && sizeArg === undefined;
+const refSized = !identity && !moss && refs.length > 0 && sizeArg === undefined;
 if (!prompt?.trim() || extra.length) fail("Expected one prompt and an optional size.");
 const sides = sizeText.toLowerCase().split("x").map(Number);
 const [width, height = width] = sides;
@@ -118,8 +122,8 @@ async function ownServerAvailable() {
 }
 
 async function queue() {
-  const graph = JSON.parse(await readFile(join(root, identity ? "workflow_krea2_id_api.json" : krea ? "workflow_krea2_api.json" : "workflow_api.json"), "utf8"));
-  const prefix = `${identity ? "krea2_id" : krea ? "krea2" : "qwen"}_${refSized ? "ref" : `${width}x${height}`}_${crypto.randomUUID().slice(0, 8)}`;
+  const graph = JSON.parse(await readFile(join(root, moss ? "workflow_moss_api.json" : identity ? "workflow_krea2_id_api.json" : krea ? "workflow_krea2_api.json" : "workflow_api.json"), "utf8"));
+  const prefix = `${moss ? "moss" : identity ? "krea2_id" : krea ? "krea2" : "qwen"}_${refSized ? "ref" : `${width}x${height}`}_${crypto.randomUUID().slice(0, 8)}`;
   for (const [i, ref] of refs.entries()) {
     const form = new FormData();
     form.append("image", Bun.file(ref), `${prefix}_ref${i + 1}${extname(ref)}`);
@@ -129,10 +133,23 @@ async function queue() {
     const { name, subfolder } = await response.json();
     const node = `ref${i + 1}`;
     graph[node] = { class_type: "LoadImage", inputs: { image: subfolder ? `${subfolder}/${name}` : name } };
-    if (!identity) graph["452"].inputs[`images.image_${i + 1}`] = [node, 0];
+    if (!identity && !moss) graph["452"].inputs[`images.image_${i + 1}`] = [node, 0];
   }
-  if (refs.length && !identity) graph["452"].inputs.vae = ["454", 0];
-  if (identity) {
+  if (refs.length && !identity && !moss) graph["452"].inputs.vae = ["454", 0];
+  if (moss) {
+    if (mossEdit) {
+      graph.mossEdit = { class_type: "LoraLoaderModelOnly", inputs: { model: ["451", 0], lora_name: "moss_image_edit_lora_rank_64_bf16.safetensors", strength_model: 1 } };
+      graph["480"].inputs.model = ["mossEdit", 0];
+      delete graph["481"];
+      for (const [id, text] of [["452", prompt], ["455", args.values.neg.trim() || "nsfw, worst quality, bad anatomy, watermark, jpeg artifact"]]) {
+        graph[id] = { class_type: "TextEncodeMOSSImageEdit", inputs: { clip: ["453", 0], prompt: text, vae: ["454", 0], edit_format: "Moss-Image-Edit", image_strength: 1 } };
+        for (const i of refs.keys()) graph[id].inputs[`images.image_${i}`] = [`ref${i + 1}`, 0];
+      }
+    } else {
+      graph["452"].inputs.text = prompt;
+      graph["455"].inputs.text = args.values.neg.trim();
+    }
+  } else if (identity) {
     graph["452"].inputs.prompt = prompt;
     graph["455"].inputs.prompt = args.values.neg.trim();
   } else if (krea) {

@@ -10,6 +10,13 @@ import { normalizeQwenSize, parseQwenSeed } from '../src/qwen.js';
 
 const PNG = Buffer.from(PNG_BASE64, 'base64');
 const REMOTE_ID = '11111111-2222-4333-8444-555555555555';
+/** A MOSS-Image JSON layout as pasted into the prompt: several lines, Korean text and an escaped line break. */
+const MOSS_LAYOUT_PROMPT = JSON.stringify({
+  summary: { meta: ['poster'], canvas: 'single', caption: '크림색 배경의 카페 포스터' },
+  items: [{ label: 'text', caption: '위쪽 가운데의 큰 제목', text: '까치\n카페', bbox: [-416, -384, -288, 384] }],
+  bbox_coord_space: 'abs_centralized',
+  bbox_format: 'yxyx'
+}, null, 2);
 
 function completedHistory(historyDir, t) {
   return new Promise((resolve, reject) => {
@@ -96,24 +103,28 @@ test('Qwen rejects unsupported dimensions and seeds at the input boundary', () =
   assert.equal(parseQwenSeed('0'), 0);
 });
 
-for (const { imageModel, mode, withReference } of [
-  { imageModel: 'qwen-image-2.1', mode: 'normal', withReference: true },
-  { imageModel: 'qwen-image-2.1-fast', mode: 'fast', withReference: true },
-  { imageModel: 'krea2', mode: 'krea2', withReference: false },
-  { imageModel: 'krea2-fast', mode: 'krea2-fast', withReference: false },
-  { imageModel: 'krea2-id', mode: 'krea2-id', withReference: true }
+for (const { imageModel, mode, references, prompt = 'a red teapot' } of [
+  { imageModel: 'qwen-image-2.1', mode: 'normal', references: 1 },
+  { imageModel: 'qwen-image-2.1-fast', mode: 'fast', references: 1 },
+  { imageModel: 'krea2', mode: 'krea2', references: 0 },
+  { imageModel: 'krea2-fast', mode: 'krea2-fast', references: 0 },
+  { imageModel: 'krea2-id', mode: 'krea2-id', references: 1 },
+  { imageModel: 'moss', mode: 'moss', references: 0, prompt: MOSS_LAYOUT_PROMPT },
+  { imageModel: 'moss', mode: 'moss', references: 4 }
 ]) {
-  test(`web ${imageModel} job submits ${mode} mode ${withReference ? 'with references' : 'without references'} and saves the remote PNG in history`, async (t) => {
+  test(`web ${imageModel} job submits ${mode} mode ${references ? 'with references' : 'without references'} and saves the remote PNG in history`, async (t) => {
     const { submissions, historyDir } = await startFakeMac(t);
-    const origin = await startWeb(t, `create-${mode}`);
+    const origin = await startWeb(t, `create-${mode}-${references}`);
     const completed = completedHistory(historyDir, t);
+    // Each reference has its own length, so a dropped or reordered one cannot pass.
+    const sent = Array.from({ length: references }, (_, index) => Buffer.concat([PNG, Buffer.alloc(index)]));
     const form = new FormData();
-    form.set('prompt', 'a red teapot');
+    form.set('prompt', prompt);
     form.set('imageModel', imageModel);
     form.set('size', '512x512');
     form.set('negative', 'text, blurry');
     form.set('seed', '42');
-    if (withReference) form.append('images', new Blob([PNG], { type: 'image/png' }), 'ref.png');
+    for (const [index, image] of sent.entries()) form.append('images', new Blob([image], { type: 'image/png' }), `ref-${index}.png`);
     const response = await fetch(`${origin}/api/generate`, { method: 'POST', body: form });
     assert.equal(response.status, 202, `Expected the web server to accept ${imageModel}`);
     const { entry: accepted } = await response.json();
@@ -128,8 +139,10 @@ for (const { imageModel, mode, withReference } of [
     assert.equal(submitted.get('negative'), 'text, blurry');
     assert.equal(submitted.get('seed'), '42');
     assert.equal(submitted.get('size'), '512x512');
-    const references = await Promise.all(submitted.getAll('images').map(async (file) => Buffer.from(await file.arrayBuffer())));
-    assert.deepEqual(references, withReference ? [PNG] : []);
+    // Multipart carries line breaks as CRLF; apart from that the prompt arrives as written.
+    assert.equal(submitted.get('prompt').replaceAll('\r\n', '\n'), prompt);
+    const received = await Promise.all(submitted.getAll('images').map(async (file) => Buffer.from(await file.arrayBuffer())));
+    assert.deepEqual(received, sent);
     assert.deepEqual(Buffer.from(await (await fetch(origin + done.imageUrl)).arrayBuffer()), PNG);
     const publicHistory = await (await fetch(`${origin}/api/history/${done.id}`)).json();
     assert.equal(publicHistory.entry.imageModel, imageModel);
@@ -162,16 +175,29 @@ for (const imageModel of ['krea2', 'krea2-fast']) {
   });
 }
 
-for (const references of [0, 2]) {
-  test(`web rejects a krea2-id job with ${references} references before writing history or submitting to the Mac`, async (t) => {
+for (const { imageModel, references, uploadLimit } of [
+  { imageModel: 'krea2-id', references: 0 },
+  { imageModel: 'krea2-id', references: 2 },
+  // The app-wide upload limit answers a fifth file first, so it is raised to let the MOSS-Image bound decide.
+  { imageModel: 'moss', references: 5, uploadLimit: '8' }
+]) {
+  test(`web rejects a ${imageModel} job with ${references} references before writing history or submitting to the Mac`, async (t) => {
+    if (uploadLimit) {
+      const previous = process.env.IMAGEN_MAX_IMAGES;
+      process.env.IMAGEN_MAX_IMAGES = uploadLimit;
+      t.after(() => {
+        if (previous === undefined) delete process.env.IMAGEN_MAX_IMAGES;
+        else process.env.IMAGEN_MAX_IMAGES = previous;
+      });
+    }
     const { submissions, historyDir } = await startFakeMac(t);
-    const origin = await startWeb(t, `reject-krea2-id-${references}-references`);
+    const origin = await startWeb(t, `reject-${imageModel}-${references}-references`);
     // A supported model is never turned away as unknown, so the 400 below is the reference rule.
     const health = await (await fetch(`${origin}/healthz`)).json();
-    assert.ok(health.imageModels.includes('krea2-id'), 'Expected the web server to support krea2-id');
+    assert.ok(health.imageModels.includes(imageModel), `Expected the web server to support ${imageModel}`);
     const form = new FormData();
     form.set('prompt', 'a red teapot');
-    form.set('imageModel', 'krea2-id');
+    form.set('imageModel', imageModel);
     for (let index = 0; index < references; index += 1) {
       form.append('images', new Blob([PNG], { type: 'image/png' }), `ref-${index}.png`);
     }

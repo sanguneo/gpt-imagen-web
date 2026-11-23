@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import express from 'express';
 import multer from 'multer';
-import { KREA_FAST_MODEL, KREA_ID_MODEL, KREA_MODEL, QWEN_MODEL, QWEN_MODELS, QWEN_TIMEOUT_MS, assertQwenConfigured, generateQwenImage, isQwenModel, normalizeQwenSize, parseQwenSeed } from './qwen.js';
+import { KREA_FAST_MODEL, KREA_ID_MODEL, KREA_MODEL, MOSS_MODEL, QWEN_MODEL, QWEN_MODELS, QWEN_TIMEOUT_MS, assertQwenConfigured, generateQwenImage, isQwenModel, normalizeQwenSize, parseQwenSeed } from './qwen.js';
 
 import {
   CODEX_MODEL_CHOICES,
@@ -73,6 +73,8 @@ function resolveRequestedSize(value) {
   }
 }
 const maxImages = Number(process.env.IMAGEN_MAX_IMAGES || 4);
+// MOSS-Image edits from at most four references, whatever the app-wide upload limit is.
+const mossMaxImages = 4;
 const maxImageBytes = Number(process.env.IMAGEN_MAX_IMAGE_BYTES || 12 * 1024 * 1024);
 const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const generationTimeoutMs = Number(process.env.IMAGEN_TIMEOUT_MS || 600_000);
@@ -433,6 +435,9 @@ app.post('/api/generate', upload.array('images', maxImages), async (req, res) =>
     }
     if (requestedImageModel === KREA_ID_MODEL && files.length !== 1) {
       return res.status(400).json({ ok: false, error: '참고 이미지 1장을 첨부하세요.' });
+    }
+    if (requestedImageModel === MOSS_MODEL && files.length > mossMaxImages) {
+      return res.status(400).json({ ok: false, error: `MOSS-Image 참고 이미지는 최대 ${mossMaxImages}장입니다.` });
     }
     const isQwen = isQwenModel(requestedImageModel);
     if (isQwen) assertQwenConfigured();

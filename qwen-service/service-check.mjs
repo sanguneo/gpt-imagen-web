@@ -55,6 +55,7 @@ const {positionals:[prompt,size], values} = parseArgs({allowPositionals:true,opt
 if (prompt === "krea test" && values.model !== "krea2") process.exit(9);
 if (prompt === "krea fast test" && (values.model !== "krea2" || !values.fast)) process.exit(9);
 if (prompt === "identity test" && (values.model !== "krea2-id" || values.fast || values.ref.length !== 1)) process.exit(9);
+if (prompt === "moss test" && (values.model !== "moss" || values.fast || values.ref.length > 4)) process.exit(9);
 const options = ["--neg",values.neg,...(values.seed === undefined ? [] : ["--seed",values.seed]),...values.ref.flatMap(ref => ["--ref",ref]),...(values.fast ? ["--fast"] : [])];
 await mkdir(join(root, "exclusive"));
 await appendFile(join(root, "calls"), JSON.stringify({prompt, size, options, pid:process.pid})+"\\n");
@@ -196,6 +197,43 @@ test("Identity mode persists and generates with exactly one uploaded reference",
   const { id } = await response.json();
   expect((await app.state(id, "done")).mode).toBe("krea2-id");
   expect(Buffer.from(await (await app.http(`/jobs/${id}/image`)).arrayBuffer())).toEqual(png);
+});
+
+test.each([0, 1, 4])("MOSS mode generates and persists with %i references", async (count) => {
+  const { root, start } = await fixture();
+  const app = await start();
+  let id;
+  if (count === 0) {
+    id = await app.submit({ prompt: "moss test", mode: "moss" });
+  } else {
+    const form = new FormData();
+    form.set("prompt", "moss test");
+    form.set("size", "512x512");
+    form.set("mode", "moss");
+    for (let i = 0; i < count; i++) form.append("images", new Blob([png], { type: "image/png" }), `ref${i}.png`);
+    const response = await app.http("/jobs", { method: "POST", body: form });
+    expect(response.status).toBe(202);
+    id = (await response.json()).id;
+  }
+  expect((await app.state(id, "done")).mode).toBe("moss");
+  expect(Buffer.from(await (await app.http(`/jobs/${id}/image`)).arrayBuffer())).toEqual(png);
+  const stored = JSON.parse(await readFile(join(root, "jobs", id, "job.json"), "utf8"));
+  expect(stored.input.mode).toBe("moss");
+  expect(stored.input.refs).toHaveLength(count);
+});
+
+test("MOSS rejects five references before generation", async () => {
+  const { root, start } = await fixture();
+  const app = await start();
+  const form = new FormData();
+  form.set("prompt", "moss test");
+  form.set("size", "512x512");
+  form.set("mode", "moss");
+  for (let i = 0; i < 5; i++) form.append("images", new Blob([png], { type: "image/png" }), `ref${i}.png`);
+  const response = await app.http("/jobs", { method: "POST", body: form });
+  expect(response.status).toBe(400);
+  expect((await response.json()).error).toContain("At most 4");
+  expect(await Bun.file(join(root, "calls")).exists()).toBe(false);
 });
 
 test("all routes require Bearer auth before routing or parsing", async () => {
